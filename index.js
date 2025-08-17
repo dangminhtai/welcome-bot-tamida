@@ -1,7 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-
+const { startNewsPoster } = require("./newsPoster");
+const connectDB = require("./db");
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -9,7 +10,8 @@ const client = new Client({
   ]
 });
 const app = express();
-
+//connect DB
+connectDB();
 app.get('/', (req, res) => {
   res.send('Bot is running!');
 });
@@ -24,6 +26,7 @@ const config = {
 
 client.once('ready', () => {
   console.log(`✅ Bot đang chạy: ${client.user.tag}`);
+  startNewsPoster(client); // ✅ tích hợp news vào bot
 });
 
 client.on('guildMemberAdd', async (member) => {

@@ -87,7 +87,7 @@ async function checkNews(client) {
 
         const exists = await PostedNews.findOne({ postId: id });
         if (exists) {
-          console.log(`[DEBUG] Skipped already posted: ${id}`);
+          // console.log(`[DEBUG] Skipped already posted: ${id}`);
           continue;
         }
 

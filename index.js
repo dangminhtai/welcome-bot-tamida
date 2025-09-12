@@ -1,24 +1,97 @@
 require('dotenv').config();
 const express = require('express');
-const { 
-  Client, 
-  GatewayIntentBits, 
-  EmbedBuilder, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle 
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Collection,
+  Partials,
+  Events
 } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const { startNewsPoster } = require("./newsPoster");
 const connectDB = require("./db");
 const WelcomeMessage = require('./models/WelcomeMessage'); // ✅ import model
+const { loadCommands } = require('./utils/commandLoader');
+const monitorBots = require('./events/monitorBots');
+const ADMIN_ID = '1149477475001323540';
 
-// Khởi tạo Discord Client
+const MonitoredBot = require('./models/MonitoredBot');
+// === 1. Khởi tạo Discord Client ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember]
 });
+async function getBotsFromDB() {
+  try {
+    const bots = await MonitoredBot.find({ isActive: true }).lean();
+    return bots.map(bot => ({ name: bot.name, token: bot.token }));
+  } catch (err) {
+    console.error('❌ Lỗi khi load bot từ DB:', err);
+    return [];
+  }
+}
+
+// === 2. Tải Slash Commands từ thư mục ===
+client.commands = new Collection();
+const commands = [];
+
+function getAllCommandFiles(dirPath, arrayOfFiles = []) {
+  const files = fs.readdirSync(dirPath);
+  for (const file of files) {
+    const fullPath = path.join(dirPath, file);
+    if (fs.statSync(fullPath).isDirectory()) {
+      getAllCommandFiles(fullPath, arrayOfFiles);
+    } else if (file.endsWith('.js')) {
+      arrayOfFiles.push(fullPath);
+    }
+  }
+  return arrayOfFiles;
+}
+//Load commands
+const commandFiles = getAllCommandFiles(path.join(__dirname, 'commands'));
+
+for (const file of commandFiles) {
+  try {
+    const command = require(file);
+    if ('data' in command && 'execute' in command) {
+      client.commands.set(command.data.name, command);
+      commands.push(command.data.toJSON());
+      console.log(`✅ Đã load lệnh: ${command.data.name}`);
+    } else {
+      console.warn(`⚠️ Thiếu "data" hoặc "execute" trong lệnh: ${file}`);
+    }
+  } catch (err) {
+    console.error(`❌ Lỗi khi load lệnh từ: ${file}`, err);
+  }
+}
+//Xử lý sự kiện
+// const interactionHandler = require('./events/interactionCreate');
+// client.on(Events.InteractionCreate, async (interaction) => {
+//   if (!(await dbCheck(interaction))) return; // check DB trước
+//   await interactionHandler.execute(interaction);
+// });
+
+loadCommands(client, path.join(__dirname, 'commands'));
+// // === 5. Xử lý MessageCreate (tin nhắn) ===
+// const messageListener = require('./events/messageListener');
+// client.on(Events.MessageCreate, async (message) => {
+//   try {
+//     await messageListener.execute(message);
+//   } catch (error) {
+//     console.error('❌ Lỗi khi xử lý tin nhắn:', error);
+//   }
+// });
+
 
 // Khởi tạo Express server để giữ bot online (cho Replit/Vercel)
 const app = express();
@@ -37,9 +110,12 @@ const config = {
 };
 
 // ✅ Khi bot sẵn sàng
-client.once('ready', () => {
+client.once('ready', async () => { // <-- thêm async
   console.log(`✅ Bot đang chạy: ${client.user.tag}`);
   startNewsPoster(client);
+
+  const botsToMonitor = await getBotsFromDB(); // load từ DB
+  monitorBots(client, ADMIN_ID, botsToMonitor); // vẫn dùng monitorBots như cũ
 });
 
 // ✅ Khi có thành viên mới join
@@ -99,23 +175,28 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 // ✅ Khi bấm nút (không bị hết hạn vì dùng event global)
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
+    try {
+      await command.execute(interaction);
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: '❌ Lỗi khi chạy lệnh này!', ephemeral: true });
+    }
+  }
 
-  try {
+  if (interaction.isButton()) {
     const doc = await WelcomeMessage.findOne({ customId: interaction.customId });
-    if (!doc) return; // Không phải nút trong DB
-
+    if (!doc) return;
     await interaction.reply({
       content: `Thanks ${interaction.user} for welcoming <@${doc.memberId}>!`,
       ephemeral: true
     });
-
-    console.log(`✅ ${interaction.user.tag} đã bấm nút chào mừng cho ${doc.memberId}`);
-  } catch (err) {
-    console.error('❌ Lỗi xử lý interaction:', err.message);
   }
 });
+
 
 // ✅ Khi member rời → xóa message + DB
 client.on('guildMemberRemove', async (member) => {

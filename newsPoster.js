@@ -176,30 +176,40 @@ async function checkNews(client) {
 
 function startNewsPoster(client) {
   async function scheduleCheck() {
-    await checkNews(client);
-
     const now = new Date();
     const minutes = now.getMinutes();
     const seconds = now.getSeconds();
 
-    // Tìm phút tiếp theo chia hết cho 5
-    const next = new Date(now);
-    next.setSeconds(0);
-    next.setMilliseconds(0);
+    // Luôn check 1 lần
+    await checkNews(client);
 
-    let addMinutes = 5 - (minutes % 5);
-    if (addMinutes === 0 && seconds > 0) {
-      addMinutes = 5; // nếu đang đúng phút chia hết cho 5 nhưng đã trễ vài giây
+    let delay;
+
+    if (minutes % 5 === 0) {
+      // Nếu đang ở phút chia hết cho 5 → check liên tục mỗi 10 giây
+      delay = 10 * 1000;
+    } else if ((minutes - 1) % 5 === 0 && seconds < 5) {
+      // Nếu vừa mới qua phút kế tiếp ngay sau mốc 5 phút (vd: 11:06:00..04)
+      // thì cho check 1 lần
+      delay = 60 * 1000; // sau đó chờ 1 phút
+    } else {
+      // Các phút khác → chờ đến mốc 5 tiếp theo
+      const next = new Date(now);
+      next.setSeconds(0);
+      next.setMilliseconds(0);
+
+      let addMinutes = 5 - (minutes % 5);
+      next.setMinutes(minutes + addMinutes);
+
+      delay = next.getTime() - now.getTime();
     }
 
-    next.setMinutes(minutes + addMinutes);
-
-    const delay = next.getTime() - now.getTime();
     setTimeout(scheduleCheck, delay);
   }
 
   scheduleCheck();
 }
+
 
 
 module.exports = { startNewsPoster };

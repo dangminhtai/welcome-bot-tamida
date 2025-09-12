@@ -1,14 +1,11 @@
 // events/monitorBots.js
-const fetch = global.fetch; // Node.js >= 18
 const MonitorSettings = require('../models/MonitorSettings');
+const MonitoredBot = require('../models/MonitoredBot');
 
-module.exports = (client, adminId, botsToMonitor) => {
+module.exports = (client, adminId) => {
     const notifyAdmin = async (message) => {
         try {
-            // Lấy setting từ DB
             const settings = await MonitorSettings.findOne({ adminId });
-
-            // Nếu chưa có setting hoặc đã bật thì mới gửi DM
             if (!settings || settings.notificationsEnabled) {
                 const admin = await client.users.fetch(adminId);
                 await admin.send(`⚠️ [BOT MONITOR] ${message}`);
@@ -18,21 +15,47 @@ module.exports = (client, adminId, botsToMonitor) => {
         }
     };
 
+    // Hàm tìm presence qua mutual guilds
+    const getPresenceFromMutualGuilds = async (userId) => {
+        for (const [guildId, guild] of client.guilds.cache) {
+            try {
+                const member = await guild.members.fetch(userId).catch(() => null);
+                if (member) {
+                    const status = member.presence?.status || 'offline';
+                    return { found: true, guildId, status };
+                }
+            } catch {
+                continue;
+            }
+        }
+        return { found: false, status: 'offline' };
+    };
+
     const checkBotStatus = async (bot) => {
         try {
-            const res = await fetch('https://discord.com/api/v10/users/@me', {
-                headers: { Authorization: `Bot ${bot.token}` },
-            });
+            const res = await getPresenceFromMutualGuilds(bot.botId);
+            const newStatus = res.status;
 
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            // console.log(`✅ Bot ${bot.name} online`);
+            if (bot.lastStatus !== newStatus) {
+                // Status changed → notify admin
+                await notifyAdmin(
+                    `Bot **${bot.name}** đã đổi trạng thái: **${bot.lastStatus} ➝ ${newStatus}**`
+                );
+                bot.lastStatus = newStatus;
+                await bot.save().catch(() => { });
+            }
         } catch (err) {
-            notifyAdmin(`Bot ${bot.name} offline hoặc treo lệnh: ${err.message}`);
+            console.error(`❌ Lỗi khi check bot ${bot.name}:`, err.message);
         }
     };
 
-    // Kiểm tra định kỳ 1 phút
-    setInterval(() => {
-        botsToMonitor.forEach(bot => checkBotStatus(bot));
+    // Interval kiểm tra mỗi phút
+    setInterval(async () => {
+        try {
+            const bots = await MonitoredBot.find({ isActive: true });
+            bots.forEach(bot => checkBotStatus(bot));
+        } catch (err) {
+            console.error('❌ Lỗi khi load bots:', err.message);
+        }
     }, 60 * 1000);
 };

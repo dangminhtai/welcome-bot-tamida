@@ -98,7 +98,7 @@ loadCommands(client, path.join(__dirname, 'commands'));
 // Khởi tạo Express server để giữ bot online (cho Replit/Vercel)
 const app = express();
 connectDB();
-
+require('./events/keepAlive');
 app.get('/', (req, res) => {
   res.send('Bot is running!');
 });

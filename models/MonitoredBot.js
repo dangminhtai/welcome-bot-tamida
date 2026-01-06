@@ -1,6 +1,4 @@
-// models/MonitoredBot.js
-const mongoose = require('mongoose');
-
+import mongoose from "mongoose";
 const botSchema = new mongoose.Schema({
     name: { type: String, required: true },
     // token: { type: String, required: true },
@@ -9,7 +7,5 @@ const botSchema = new mongoose.Schema({
     lastCommand: { type: String, default: null },
     lastStatus: { type: String, default: 'N/A' }, // running / success / error
     lastResponseTime: { type: Number, default: 0 } // ms
-
 });
-
-module.exports = mongoose.model('MonitoredBot', botSchema);
+export default mongoose.model('MonitoredBot', botSchema);

@@ -22,18 +22,15 @@ export const ERROR_CODES = {
         { status: 'DEADLINE_EXCEEDED', action: 'RETRY_LATER', message: 'Processing timeout.' }
     ]
 };
-
 export const ACTIONS = {
     ROTATE_KEY: 'ROTATE_KEY',
     RETRY: 'RETRY',
     STOP: 'STOP',
     RETRY_LATER: 'RETRY_LATER'
 };
-
 export function getActionForError(status, code) {
     if (ERROR_CODES[code]) {
         const errorDetail = ERROR_CODES[code].find(e => e.status === status) || ERROR_CODES[code][0]; // fallback to first if status match fails but code matches
-
         switch (errorDetail.action) {
             case 'ROTATE_KEY':
             case 'CHECK_KEY': // Treat invalid/leaked keys as needing rotation

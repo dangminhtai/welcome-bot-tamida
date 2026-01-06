@@ -3,13 +3,11 @@ export const TREE_CONFIG = {
     // Game Data
     initialScoreText: "Chưa có điểm",
     thumbnailUrl: 'https://i.ibb.co/gGSfZ3c/icon-512.png',
-
     // UI Colors
     colors: {
         active: '#2ecc71',
         finished: '#f1c40f'
     },
-
     // UI Titles
     titles: {
         active: '🎄 TRANG TRÍ CÂY THÔNG NOEL CÙNG NHAU',
@@ -27,20 +25,17 @@ export const TREE_CONFIG = {
         comboBonus: 30,
         isolationBonus: 5,
     },
-
     // Messages / Descriptions
     descriptions: {
         active: (scoreText, treeState) => `**Luật chơi:** Spam nút để chiếm chỗ trên cây!\nAi treo được nhiều đồ hơn sẽ chiến thắng!\n\n**🏆 Tỉ số:** ${scoreText}\n\`\`\`text\n${treeState}\n\`\`\``,
         finished: (winnerText, treeState) => `**GAME KẾT THÚC!**\n\n${winnerText}\n\n**TÁC PHẨM HOÀN THIỆN:**\n\`\`\`text\n${treeState}\n\`\`\``
     },
-
     // Game Over Texts
     gameResult: {
         draw: "**HÒA NÈ, LẦN SAU HÃY THỬ LẠI!**",
         winner: (name, score) => `👑 **NGƯỜI CHƠI: ${name.toUpperCase()}** (${score} điểm)`,
         noPlayers: "Không ai chơi cả..."
     },
-
     // Button Labels
     buttons: {
         customIds: {
@@ -62,7 +57,6 @@ export const TREE_CONFIG = {
         stopCancelled: 'Đã hủy yêu cầu kết thúc.',
         selfApprove: 'Bạn không thể tự duyệt yêu cầu của mình (cần người khác đồng ý)!'
     },
-
     // Slash Command
     command: {
         name: 'create-tree',
@@ -78,7 +72,6 @@ export const TREE_CONFIG = {
             }
         }
     },
-
     // Tree Templates
     templates: {
         huge: "        🌟\n       🎄🎄\n      🎄🎄🎄\n     🎄🎄🎄🎄\n    🎄🎄🎄🎄🎄\n   🎄🎄🎄🎄🎄🎄\n  🎄🎄🎄🎄🎄🎄🎄\n       🟫🟫",

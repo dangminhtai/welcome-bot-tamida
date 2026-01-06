@@ -1,6 +1,4 @@
-// models/RoleConfig.js
-const mongoose = require("mongoose");
-
+import mongoose from "mongoose";
 const RoleConfigSchema = new mongoose.Schema({
     guildId: { type: String, required: true },
     roleId: { type: String, required: true },
@@ -8,5 +6,4 @@ const RoleConfigSchema = new mongoose.Schema({
     label: { type: String, required: true },
     style: { type: String, default: "Primary" }, // ButtonStyle
 });
-
-module.exports = mongoose.model("RoleConfig", RoleConfigSchema);
+export default mongoose.model("RoleConfig", RoleConfigSchema);

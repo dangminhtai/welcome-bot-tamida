@@ -1,20 +1,21 @@
-const fs = require('fs');
-const path = require('path');
-const ADMIN_ID = '1149477475001323540'
+import fs from "fs";
+import path from "path";
+import { pathToFileURL } from 'url';
 
-function loadCommands(client, baseDir) {
-    function load(dir, isAdmin = false) {
+const ADMIN_ID = '1149477475001323540';
+
+async function loadCommands(client, baseDir) {
+    async function load(dir, isAdmin = false) {
         const files = fs.readdirSync(dir, { withFileTypes: true });
-
         for (const file of files) {
             const filePath = path.join(dir, file.name);
-
             if (file.isDirectory()) {
                 const adminMode = file.name.toLowerCase() === 'admin' || isAdmin;
-                load(filePath, adminMode);
+                await load(filePath, adminMode);
             }
             else if (file.name.endsWith('.js')) {
-                const command = require(filePath);
+                const commandModule = await import(pathToFileURL(filePath).href);
+                const command = commandModule.default || commandModule;
 
                 // ✅ Bỏ qua file không hợp lệ
                 if (!command || !command.data || typeof command.data.name !== 'string') {
@@ -35,13 +36,13 @@ function loadCommands(client, baseDir) {
                         return originalExecute(interaction);
                     };
                 }
-
                 client.commands.set(command.data.name, command);
             }
         }
     }
-
-    load(baseDir);
+    await load(baseDir);
 }
-
-module.exports = { loadCommands };
+export { loadCommands };
+export default {
+    loadCommands
+};

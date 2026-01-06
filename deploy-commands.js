@@ -1,48 +1,54 @@
-import discord from "discord.js";
-import fs from "node:fs";
-import path from "node:path";
-import { config } from "dotenv";
-const { REST, Routes } = discord;
-({ config }.config());
-const commands = [];
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
+import discord from 'discord.js';
+import { config } from 'dotenv';
+
+config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const commandsPath = path.join(__dirname, 'commands');
-// Hàm đệ quy để duyệt toàn bộ thư mục con
-function loadCommandsRecursively(dir) {
+const commands = [];
+
+// Hàm đệ quy load commands
+async function loadCommandsRecursively(dir) {
     const files = fs.readdirSync(dir, { withFileTypes: true });
     for (const file of files) {
         const fullPath = path.join(dir, file.name);
         if (file.isDirectory()) {
-            loadCommandsRecursively(fullPath); // Gọi đệ quy nếu là thư mục
-        }
-        else if (file.isFile() && file.name.endsWith('.js')) {
+            await loadCommandsRecursively(fullPath);
+        } else if (file.isFile() && file.name.endsWith('.js')) {
+            const commandModule = await import(`file://${fullPath}`);
+            const command = commandModule.default || commandModule;
             if ('data' in command && 'execute' in command) {
                 commands.push(command.data.toJSON());
-            }
-            else {
-                console.log(`[WARNING] The command at ${fullPath} is missing a required "data" or "execute" property.`);
+            } else {
+                console.log(`[WARNING] The command at ${fullPath} is missing "data" or "execute".`);
             }
         }
     }
 }
-// Bắt đầu duyệt từ thư mục commands
-loadCommandsRecursively(commandsPath);
-// Thiết lập REST API
+
+await loadCommandsRecursively(commandsPath);
+
+const { REST, Routes } = discord;
 const rest = new REST().setToken(process.env.TOKEN);
-// Dùng lệnh toàn cục hay trong server test?
 const isGuild = !!process.env.GUILD_ID;
 const route = isGuild
     ? Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID)
     : Routes.applicationCommands(process.env.CLIENT_ID);
+
 (async () => {
     try {
         console.log(`⛔ Clearing existing ${isGuild ? 'guild' : 'global'} commands...`);
-        await rest.put(route, { body: [] }); // Xóa toàn bộ lệnh hiện tại
+        await rest.put(route, { body: [] });
         console.log('✅ Successfully cleared all commands.');
         console.log(`🚀 Deploying ${commands.length} new ${isGuild ? 'guild' : 'global'} commands...`);
         const data = await rest.put(route, { body: commands });
         console.log(`✅ Successfully deployed ${data.length} commands.`);
-    }
-    catch (error) {
+    } catch (error) {
         console.error('❌ Error during deployment:', error);
     }
 })();

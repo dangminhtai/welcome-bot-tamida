@@ -1,14 +1,15 @@
 import axios from "axios";
 import sharp from "sharp";
 import { EmbedBuilder, AttachmentBuilder } from "discord.js";
-import PostedNews from "./models/PostedNews.js";
+import PostedNews from "../models/PostedNews.js";
+import NewsChannel from "../models/NewsChannel.js";
 const MAX_IMAGES = 4;
 const REQUEST_TIMEOUT = 20000;
 const MAX_FILE_SIZE = 7 * 1024 * 1024;
-const FEEDS = [
+const FEED_CONFIGS = [
     {
         url: "https://bbs-api-os.hoyolab.com/community/post/wapi/userPost?size=3&uid=1015537",
-        channelId: "1406506009631002756" // genshin-hoyolab 1406506009631002756
+        type: "hoyolab"
     }
 ];
 // Làm sạch text mô tả
@@ -85,70 +86,76 @@ async function downloadAttachments(urls, id) {
     return atts;
 }
 async function checkNews(client) {
-    for (const feedInfo of FEEDS) {
+    for (const feedConfig of FEED_CONFIGS) {
         try {
-            const response = await axios.get(feedInfo.url, { timeout: REQUEST_TIMEOUT });
+            // 1. Fetch configured channels from DB
+            const channels = await NewsChannel.find({ type: feedConfig.type });
+            if (!channels.length) {
+                // Optional: Fallback or just log
+                // console.log(`[News] No channels configured for ${feedConfig.type}`);
+                continue;
+            }
+
+            const response = await axios.get(feedConfig.url, { timeout: REQUEST_TIMEOUT });
             const list = response?.data?.data?.list || [];
-            //   console.log(`[DEBUG] API returned ${list.length} posts`);
+
             for (const post of list.reverse()) {
                 const id = post.post.post_id;
                 const link = `https://www.hoyolab.com/article/${id}`;
-                const exists = await PostedNews.findOne({ postId: id });
-                if (exists) {
-                    // console.log(`[DEBUG] Skipped already posted: ${id}`);
-                    continue;
-                }
-                // Thu ảnh (tối đa MAX_IMAGES)
+
+                // Prepare content (Fetch once)
                 const imageUrls = extractAllImageUrls(post);
-                // console.log(`[DEBUG] Post ${id} imageUrls:`, imageUrls);
-                // Tải attachments
                 const attachments = await downloadAttachments(imageUrls, id);
-                const channel = await client.channels.fetch(feedInfo.channelId);
-                if (!channel) {
-                    console.warn(`[WARN] Channel not found: ${feedInfo.channelId}`);
-                    continue;
-                }
-                // Tạo embed chính
+
+                // Create Embeds (Reusable)
                 const mainEmbed = new EmbedBuilder()
                     .setColor("#0099ff")
-                    .setAuthor({
-                        name: "Genshin Impact Official",
-                        iconURL: "https://i.ibb.co/GfbZk2jS/image.png"
-                    })
+                    .setAuthor({ name: "Genshin Impact Official", iconURL: "https://i.ibb.co/GfbZk2jS/image.png" })
                     .setTitle(post.post.subject || "New post")
                     .setURL(link)
                     .setDescription(cleanText(post.post.content)?.slice(0, 1000) + `\n\n **View detail:** ${link}`)
                     .setTimestamp(new Date(post.post.created_at * 1000))
                     .setFooter({ text: "Follow on HoYoLAB for full details" });
-                // Nếu có ảnh, embed chính lấy ảnh đầu tiên (dùng attachment://)
-                if (attachments.length > 0) {
-                    mainEmbed.setImage(`attachment://${attachments[0].name}`);
-                }
-                // Tạo các embed phụ chứa ảnh (attachments[1..])
+
+                if (attachments.length > 0) mainEmbed.setImage(`attachment://${attachments[0].name}`);
+
                 const imageEmbeds = [];
                 for (let i = 1; i < attachments.length; i++) {
                     imageEmbeds.push(new EmbedBuilder()
                         .setColor("#0099ff")
                         .setImage(`attachment://${attachments[i].name}`)
-                        .setURL(link) // giữ cùng URL nếu muốn
-                    );
+                        .setURL(link));
                 }
-                // Gửi 1 tin nhắn duy nhất: nhiều embed (main + imageEmbeds) + files (attachments)
-                try {
-                    const sent = await channel.send({
-                        embeds: [mainEmbed, ...imageEmbeds],
-                        files: attachments
-                    });
-                    // Lưu DB sau khi gửi thành công
-                    await PostedNews.create({ postId: id });
-                    console.log(`📢 Posted news ${id} with ${attachments.length} images: ${link}`);
-                }
-                catch (sendErr) {
-                    console.error(`❌ Failed to send post ${id}:`, sendErr);
+
+                // Broadcast to ALL configured channels
+                for (const config of channels) {
+                    try {
+                        const channelId = config.channelId;
+
+                        // Check if already posted TO THIS CHANNEL
+                        const exists = await PostedNews.findOne({ postId: id, channelId: channelId });
+                        if (exists) continue;
+
+                        const channel = await client.channels.fetch(channelId).catch(() => null);
+                        if (!channel) continue;
+
+                        await channel.send({
+                            embeds: [mainEmbed, ...imageEmbeds],
+                            files: attachments // Note: Discord.js might complain if you reuse attachment streams. 
+                            // If errors occur, we might need to clone buffers or re-create attachments.
+                            // However, since we downloaded to buffer, `AttachmentBuilder(buffer)` should be reusable.
+                        });
+
+                        // Mark as posted FOR THIS CHANNEL
+                        await PostedNews.create({ postId: id, channelId: channelId });
+                        console.log(`📢 Posted news ${id} to channel ${channelId}`);
+
+                    } catch (err) {
+                        console.error(`❌ Failed to send/save to channel ${config.channelId}:`, err.message);
+                    }
                 }
             }
-        }
-        catch (err) {
+        } catch (err) {
             console.error("❌ Error fetching news:", err.message);
         }
     }

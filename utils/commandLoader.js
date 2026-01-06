@@ -15,7 +15,11 @@ async function loadCommands(client, baseDir) {
             }
             else if (file.name.endsWith('.js')) {
                 const commandModule = await import(pathToFileURL(filePath).href);
-                const command = commandModule.default || commandModule;
+                // If named exports (User style), commandModule is immutable Module Namespace. 
+                // We must clone it to a plain object to allow modifying .execute later.
+                const command = commandModule.default
+                    ? commandModule.default
+                    : { ...commandModule };
 
                 // ✅ Bỏ qua file không hợp lệ
                 if (!command || !command.data || typeof command.data.name !== 'string') {

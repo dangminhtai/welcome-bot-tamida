@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 import { startNewsPoster } from "../../helpers/newPoster.js";
+import { startGiftcodePoster } from "../../helpers/giftcodePoster.js";
 import monitorBots from "../monitorBots.js";
 import MonitoredBot from "../../models/MonitoredBot.js";
 
@@ -9,10 +10,13 @@ export default (client) => {
     client.once(Events.ClientReady, async () => {
         console.log(`✅ [EVENT] Bot đang chạy: ${client.user.tag}`);
 
-        // 1. Start News Poster
+        // 1. Start News Poster (HoYoLAB)
         startNewsPoster(client);
 
-        // 2. Start Bot Monitor
+        // 2. Start Gift Code Poster
+        startGiftcodePoster(client);
+
+        // 3. Start Bot Monitor
         try {
             const bots = await MonitoredBot.find({ isActive: true }).lean();
             const botsToMonitor = bots.map(bot => ({ name: bot.name, token: bot.token }));

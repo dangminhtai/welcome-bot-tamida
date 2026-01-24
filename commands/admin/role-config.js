@@ -12,12 +12,22 @@ export const data = new SlashCommandBuilder()
         .addRoleOption(opt => opt.setName("role").setDescription("Role to assign").setRequired(true))
         .addStringOption(opt => opt.setName("label").setDescription("Button label").setRequired(true)))
     .addSubcommand(sub => sub.setName("list").setDescription("Show all configured roles"))
-    .addSubcommand(sub => sub.setName("send-menu").setDescription("Send the role selection menu"));
+    .addSubcommand(sub => sub.setName("send-menu").setDescription("Send the role selection menu"))
+    .addSubcommand(sub => sub
+        .setName("remove")
+        .setDescription("Remove a role from the menu")
+        .addRoleOption(opt => opt.setName("role").setDescription("Role to remove from menu").setRequired(true)));
 export async function execute(interaction) {
+    if (!interaction.guild) {
+        return interaction.reply({ content: "❌ Chỉ dùng được trong server.", ephemeral: true });
+    }
     const sub = interaction.options.getSubcommand();
     if (sub === "add") {
         const role = interaction.options.getRole("role");
         const label = interaction.options.getString("label");
+        if (!role) {
+            return interaction.reply({ content: "❌ Không tìm thấy role. Chỉ dùng trong server và chọn role hợp lệ.", ephemeral: true });
+        }
         const buttonId = `role_${role.id}`;
         const exists = await RoleConfig.findOne({ guildId: interaction.guild.id, roleId: role.id });
         if (exists)
@@ -59,6 +69,17 @@ export async function execute(interaction) {
         }
         await interaction.channel.send({ embeds: [embed], components: rows });
         return interaction.reply({ content: "✅ Role menu sent!", ephemeral: true });
+    }
+    if (sub === "remove") {
+        const role = interaction.options.getRole("role");
+        if (!role) {
+            return interaction.reply({ content: "❌ Không tìm thấy role.", ephemeral: true });
+        }
+        const cfg = await RoleConfig.findOne({ guildId: interaction.guild.id, roleId: role.id });
+        if (!cfg)
+            return interaction.reply({ content: `❌ Role ${role.name} chưa có trong menu.`, ephemeral: true });
+        await RoleConfig.deleteOne({ _id: cfg._id });
+        return interaction.reply({ content: `✅ Đã xóa role **${role.name}** khỏi menu.`, ephemeral: true });
     }
 }
 export default {

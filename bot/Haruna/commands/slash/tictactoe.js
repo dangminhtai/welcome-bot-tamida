@@ -14,10 +14,11 @@ export default {
         ),
 
     async execute(interaction) {
-        const opponent = interaction.options.getUser('opponent');
+        try {
+            const opponent = interaction.options.getUser('opponent');
 
-        // Initial State
-        const gameState = {
+            // Initial State
+            const gameState = {
             board: Array(9).fill(null), // 0-8
             player1: interaction.user,
             player2: opponent || null, // If null, waiting for join
@@ -204,20 +205,30 @@ export default {
             }
         });
 
-        // Utils
-        function checkWin(board) {
-            const lines = [
-                [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
-                [0, 3, 6], [1, 4, 7], [2, 5, 8], // Cols
-                [0, 4, 8], [2, 4, 6]             // Diagonals
-            ];
-            for (let line of lines) {
-                const [a, b, c] = line;
-                if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-                    return true;
+            // Utils
+            function checkWin(board) {
+                const lines = [
+                    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+                    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Cols
+                    [0, 4, 8], [2, 4, 6]             // Diagonals
+                ];
+                for (let line of lines) {
+                    const [a, b, c] = line;
+                    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                        return true;
+                    }
                 }
+                return false;
             }
-            return false;
+        } catch (err) {
+            console.error('[tictactoe]', err);
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: 'Có lỗi khi tạo game.', ephemeral: true }).catch(() => {});
+                } else if (interaction.deferred) {
+                    await interaction.editReply({ content: 'Có lỗi khi tạo game.' }).catch(() => {});
+                }
+            } catch (_) {}
         }
     }
 };

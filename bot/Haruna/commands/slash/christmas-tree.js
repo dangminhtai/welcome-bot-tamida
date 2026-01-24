@@ -19,36 +19,45 @@ export default {
                 )),
 
     async execute(interaction) {
-        const size = interaction.options.getString('size');
-        const baseTree = TREE_CONFIG.templates[size] || TREE_CONFIG.templates.medium;
-
-        const initialState = {
-            treeState: baseTree,
-            scores: new Map(),
-            names: new Map(),
-            isFinished: false
-        };
-
-        // Tạo UI
-        const uiPayload = createGameUI(initialState, interaction.user.username, interaction.user.displayAvatarURL());
-
-        const response = await interaction.reply({
-            ...uiPayload,
-            fetchReply: true
-        });
-
-        // Lưu DB
         try {
-            const { default: ChristmasTree } = await import('../../models/ChristmasTree.js');
-            await ChristmasTree.create({
-                messageId: response.id,
-                channelId: interaction.channelId,
+            const size = interaction.options.getString('size');
+            const baseTree = TREE_CONFIG.templates[size] || TREE_CONFIG.templates.medium;
+
+            const initialState = {
                 treeState: baseTree,
-                scores: {},
-                names: {}
+                scores: new Map(),
+                names: new Map(),
+                isFinished: false
+            };
+
+            const uiPayload = createGameUI(initialState, interaction.user.username, interaction.user.displayAvatarURL());
+
+            const response = await interaction.reply({
+                ...uiPayload,
+                fetchReply: true
             });
-        } catch (error) {
-            console.error("DB Error:", error);
+
+            try {
+                const { default: ChristmasTree } = await import('../../models/ChristmasTree.js');
+                await ChristmasTree.create({
+                    messageId: response.id,
+                    channelId: interaction.channelId,
+                    treeState: baseTree,
+                    scores: {},
+                    names: {}
+                });
+            } catch (error) {
+                console.error("DB Error:", error);
+            }
+        } catch (err) {
+            console.error('[christmas-tree]', err);
+            try {
+                if (interaction.deferred) {
+                    await interaction.editReply({ content: 'Có lỗi khi tạo cây thông.' }).catch(() => {});
+                } else if (!interaction.replied) {
+                    await interaction.reply({ content: 'Có lỗi khi tạo cây thông.', ephemeral: true }).catch(() => {});
+                }
+            } catch (_) {}
         }
     },
 };

@@ -6,6 +6,9 @@ import { fileURLToPath } from "url";
 import { loadCommands, deployCommands } from './deployCommands.js'
 import { connectDB } from './db.js';
 import Logger from './class/Logger.js';
+import musicPlayer from './utils/musicPlayer.js';
+import GuildMusicQueue from './models/GuildMusicQueue.js';
+import sodium from 'libsodium-wrappers';
 
 // Event imports
 import onReady from './events/client/onReady.js';
@@ -17,7 +20,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildVoiceStates
     ],
     partials: [Partials.Channel]
 });
@@ -41,13 +45,40 @@ app.listen(PORT, () => {
 
 async function main() {
     try {
-        await connectDB();
-        const commandsPath = path.join(__dirname, 'commands')
-        const loadResult = await loadCommands(commandsPath, client);
-        await deployCommands(loadResult);
+        await sodium.ready;
+        // 1. Connect DB (Non-blocking or Soft-fail)
+        try {
+            await connectDB();
+        } catch (dbErr) {
+            console.error('⚠️ Database connection failed:', dbErr.message);
+            console.log('Bot will continue startup without Database...');
+        }
+
+        musicPlayer.setOnTrackDone(async (guildId) => {
+            try {
+                // Ensure model exists before using
+                if (GuildMusicQueue && GuildMusicQueue.updateOne) {
+                    await GuildMusicQueue.updateOne({ guildId }, { $pop: { tracks: -1 } });
+                }
+            } catch (e) {
+                console.error('[GuildMusicQueue] onTrackDone:', e);
+            }
+        });
+
+        // 2. Load & Deploy Commands
+        try {
+            const commandsPath = path.join(__dirname, 'commands')
+            const loadResult = await loadCommands(commandsPath, client);
+            await deployCommands(loadResult);
+        } catch (cmdErr) {
+            console.error('⚠️ Command loading/deployment failed:', cmdErr.message);
+        }
+
+        // 3. Login
         await client.login(process.env.DISCORD_TOKEN);
+
     } catch (err) {
-        Logger.error(`Lỗi khi kết nối và khởi động BOT: ${err}`);
+        Logger.error(`❌ Fatal Error during startup: ${err}`);
     }
 }
 main();

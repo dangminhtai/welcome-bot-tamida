@@ -119,17 +119,24 @@ export default (client) => {
         // --- 2. XỬ LÝ LỆNH SLASH ---
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
-            if (!command) return;
+            if (!command) {
+                try {
+                    await interaction.reply({ content: 'Lệnh không tìm thấy.', flags: MessageFlags.Ephemeral });
+                } catch (_) {}
+                return;
+            }
 
             try {
                 await command.execute(interaction);
             } catch (error) {
                 console.error("Command Execution Error:", error);
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!', flags: MessageFlags.Ephemeral });
-                } else {
-                    await interaction.followUp({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!', flags: MessageFlags.Ephemeral });
-                }
+                try {
+                    if (interaction.deferred) {
+                        await interaction.editReply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!' }).catch(() => {});
+                    } else if (!interaction.replied) {
+                        await interaction.reply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!', flags: MessageFlags.Ephemeral }).catch(() => {});
+                    }
+                } catch (_) {}
             }
         }
     });

@@ -93,9 +93,10 @@ export default {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply();
+        try {
+            await interaction.deferReply();
 
-        const type = interaction.options.getString('type') || 'cute';
+            const type = interaction.options.getString('type') || 'cute';
 
         // Gọi hàm lấy dữ liệu Reddit
         // Thử tối đa 3 lần nếu mạng lag hoặc xui xẻo bốc trúng sub rỗng
@@ -166,9 +167,17 @@ export default {
 
         } catch (error) {
             console.error("Lỗi xử lý ảnh:", error);
-            await interaction.editReply({ 
-                content: `Lỗi 1 chút khi cố gắng lấy ảnh.` 
-            });
+            await interaction.editReply({ content: 'Lỗi 1 chút khi cố gắng lấy ảnh.' }).catch(() => {});
+        }
+        } catch (e) {
+            console.error('[animal]', e);
+            try {
+                if (interaction.deferred) {
+                    await interaction.editReply({ content: 'Có lỗi khi lấy ảnh.' }).catch(() => {});
+                } else if (!interaction.replied) {
+                    await interaction.reply({ content: 'Có lỗi khi lấy ảnh.', ephemeral: true }).catch(() => {});
+                }
+            } catch (_) {}
         }
     },
 };

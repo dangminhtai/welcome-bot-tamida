@@ -5,7 +5,7 @@ import {
     AudioPlayerStatus,
     StreamType,
 } from '@discordjs/voice';
-import play from 'play-dl';
+import ytdl from '@distube/ytdl-core'; // <-- Dùng thư viện mới xịn hơn
 
 /**
  * Map guildId -> { connection, player, queue, channelId, guildId }
@@ -13,10 +13,10 @@ import play from 'play-dl';
  */
 const guildStates = new Map();
 
-let _onTrackDone = () => {};
+let _onTrackDone = () => { };
 /** Gọi khi playNext shift (track vừa lấy ra để phát hoặc bỏ) — để đồng bộ DB (GuildMusicQueue $pop). */
 export function setOnTrackDone(fn) {
-    _onTrackDone = typeof fn === 'function' ? fn : () => {};
+    _onTrackDone = typeof fn === 'function' ? fn : () => { };
 }
 
 /**
@@ -75,7 +75,7 @@ function leave(guildId) {
     if (!state) return;
     try {
         state.connection.destroy();
-    } catch (_) {}
+    } catch (_) { }
     guildStates.delete(guildId);
 }
 
@@ -118,12 +118,28 @@ async function playNext(guildId) {
     }
 
     try {
-        const src = await play.stream(item.url);
-        const resource = createAudioResource(src.stream, { inputType: StreamType.Arbitrary });
+        console.log('[musicPlayer] Streaming:', item.url);
+
+        // --- FIX LỖI Ở ĐÂY ---
+        // Sử dụng ytdl-core thay vì play-dl
+        const stream = ytdl(item.url, {
+            filter: 'audioonly', // Chỉ lấy âm thanh
+            quality: 'highestaudio', // Chất lượng cao nhất
+            highWaterMark: 1 << 25, // Bộ đệm lớn (32MB) để tránh lag
+            dlChunkSize: 0, // Tải liên tục không ngắt quãng
+        });
+
+        // Tạo resource từ stream của ytdl
+        // Lưu ý: Không cần inputType: StreamType.Arbitrary, để mặc định nó tự detect tốt hơn
+        const resource = createAudioResource(stream);
+
         state.player.play(resource);
+        // ---------------------
+
     } catch (err) {
         console.error('[musicPlayer] stream error:', err);
         state.currentTrack = null;
+        // Nếu lỗi bài này thì thử bài tiếp theo luôn
         return playNext(guildId);
     }
 }

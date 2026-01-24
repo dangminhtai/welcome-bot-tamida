@@ -1,41 +1,34 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import musicPlayer from '../../utils/musicPlayer.js';
+import { SlashCommandBuilder } from 'discord.js';
+import { poru } from '../../utils/LavalinkManager.js';
 
 export default {
-    data: new SlashCommandBuilder().setName('queue').setDescription('Xem hàng chờ nhạc'),
+    data: new SlashCommandBuilder()
+        .setName('queue')
+        .setDescription('Xem hàng chờ nhạc (Lavalink)'),
 
     async execute(interaction) {
-        try {
-            const guild = interaction.guild;
-            if (!guild) {
-                await interaction.reply({ content: 'Lệnh chỉ dùng trong server.', flags: MessageFlags.Ephemeral });
-                return;
-            }
+        const player = poru.players.get(interaction.guild.id);
 
-            const state = musicPlayer.getState(guild.id);
-            if (!state || (state.queue.length === 0 && !state.currentTrack)) {
-                await interaction.reply({ content: 'Không có bài trong queue.', flags: MessageFlags.Ephemeral });
-                return;
-            }
-
-            const lines = [];
-            if (state.currentTrack) {
-                lines.push(`**Đang phát:** ${state.currentTrack.title} (${state.currentTrack.requestedBy})`);
-            }
-            state.queue.forEach((t, i) => {
-                lines.push(`${i + 1}. ${t.title} — ${t.requestedBy}`);
-            });
-            const text = lines.length ? lines.join('\n') : 'Không có bài trong queue.';
-            await interaction.reply({ content: text, flags: MessageFlags.Ephemeral });
-        } catch (err) {
-            console.error('[queue]', err);
-            try {
-                if (interaction.deferred) {
-                    await interaction.editReply({ content: 'Có lỗi khi xem queue.' }).catch(() => {});
-                } else if (!interaction.replied) {
-                    await interaction.reply({ content: 'Có lỗi khi xem queue.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                }
-            } catch (_) {}
+        if (!player || (player.queue.length === 0 && !player.currentTrack)) {
+            return interaction.reply({ content: '📭 Hàng chờ trống.', ephemeral: true });
         }
+
+        const queue = player.queue;
+        const currentTrack = player.currentTrack;
+
+        let content = `**Đang phát:** [${currentTrack.info.title}](${currentTrack.info.uri})\n`;
+        content += `**Sắp phát:**\n`;
+
+        if (queue.length > 0) {
+            queue.slice(0, 10).forEach((track, index) => {
+                content += `${index + 1}. [${track.info.title}](${track.info.uri}) \n`;
+            });
+            if (queue.length > 10) content += `...và còn ${queue.length - 10} bài nữa.`;
+        } else {
+            content += '(Hết)';
+        }
+
+        return interaction.reply({ content: content, ephemeral: true });
     },
 };
+

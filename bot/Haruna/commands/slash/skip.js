@@ -1,40 +1,21 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import musicPlayer from '../../utils/musicPlayer.js';
-import MusicLog from '../../models/MusicLog.js';
+import { SlashCommandBuilder } from 'discord.js';
+import { poru } from '../../utils/LavalinkManager.js';
 
 export default {
-    data: new SlashCommandBuilder().setName('skip').setDescription('Bỏ qua bài đang phát'),
+    data: new SlashCommandBuilder()
+        .setName('skip')
+        .setDescription('Bỏ qua bài hiện tại (Lavalink)'),
 
     async execute(interaction) {
-        try {
-            const guild = interaction.guild;
-            if (!guild) {
-                await interaction.reply({ content: 'Lệnh chỉ dùng trong server.', flags: MessageFlags.Ephemeral });
-                return;
-            }
+        const player = poru.players.get(interaction.guild.id);
 
-            const ok = musicPlayer.skip(guild.id);
-            if (ok) {
-                MusicLog.create({
-                    guildId: guild.id,
-                    action: 'skip',
-                    requestedBy: interaction.user.tag,
-                    userId: interaction.user.id,
-                }).catch((e) => console.error('[MusicLog]', e));
-            }
-            await interaction.reply({
-                content: ok ? 'Đã bỏ qua bài hiện tại.' : 'Không có bài đang phát.',
-                flags: MessageFlags.Ephemeral,
-            });
-        } catch (err) {
-            console.error('[skip]', err);
-            try {
-                if (interaction.deferred) {
-                    await interaction.editReply({ content: 'Có lỗi khi skip.' }).catch(() => {});
-                } else if (!interaction.replied) {
-                    await interaction.reply({ content: 'Có lỗi khi skip.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                }
-            } catch (_) {}
+        if (!player || !player.currentTrack) {
+            return interaction.reply({ content: '❌ Không có nhạc để skip!', ephemeral: true });
         }
+
+        // CHÍNH XÁC: Hàm này có trong danh sách debug
+        player.skip();
+
+        return interaction.reply(`⏭️ Đã bỏ qua bài: **${player.currentTrack.info.title}**`);
     },
 };

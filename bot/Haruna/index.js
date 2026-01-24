@@ -6,7 +6,6 @@ import { fileURLToPath } from "url";
 import { loadCommands, deployCommands } from './deployCommands.js'
 import { connectDB } from './db.js';
 import Logger from './class/Logger.js';
-import musicPlayer from './utils/musicPlayer.js';
 import GuildMusicQueue from './models/GuildMusicQueue.js';
 import sodium from 'libsodium-wrappers';
 
@@ -54,16 +53,7 @@ async function main() {
             console.log('Bot will continue startup without Database...');
         }
 
-        musicPlayer.setOnTrackDone(async (guildId) => {
-            try {
-                // Ensure model exists before using
-                if (GuildMusicQueue && GuildMusicQueue.updateOne) {
-                    await GuildMusicQueue.updateOne({ guildId }, { $pop: { tracks: -1 } });
-                }
-            } catch (e) {
-                console.error('[GuildMusicQueue] onTrackDone:', e);
-            }
-        });
+
 
         // 2. Load & Deploy Commands
         try {

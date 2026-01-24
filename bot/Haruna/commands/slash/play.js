@@ -1,106 +1,63 @@
-import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import play from 'play-dl';
-import musicPlayer from '../../utils/musicPlayer.js';
-import MusicLog from '../../models/MusicLog.js';
-import GuildMusicQueue from '../../models/GuildMusicQueue.js';
-
-async function resolveTrack(query) {
-    const v = await play.validate(query);
-    if (v === 'yt_video') {
-        const info = await play.video_basic_info(query);
-        const title = info?.video_details?.title || 'YouTube';
-        return { url: query, title };
-    }
-    if (v === 'so_track') {
-        const so = await play.soundcloud(query);
-        if (so && so.type === 'track') {
-            return { url: query, title: so.name || 'SoundCloud' };
-        }
-    }
-    const results = await play.search(query, { limit: 1, source: { youtube: 'video' } });
-    if (!results || results.length === 0) return null;
-    return { url: results[0].url, title: results[0].title || 'Không rõ tên' };
-}
-
+import { SlashCommandBuilder } from 'discord.js';
+import { poru } from '../../utils/LavalinkManager.js'; // Import cái biến poru vừa tạo
+import { applyAudioSettings } from '../../utils/AudioController.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('play')
-        .setDescription('Phát nhạc từ YouTube hoặc tìm theo tên')
-        .addStringOption((o) => o.setName('query').setDescription('URL hoặc tên bài hát').setRequired(true)),
+        .setDescription('Phát nhạc theo người dùng yêu cầu')
+        .addStringOption(option =>
+            option.setName('query')
+                .setDescription('Tên bài hoặc Link')
+                .setRequired(true)
+        ),
 
     async execute(interaction) {
-        console.log('[Play Command] Started execution');
-        try {
-            const guild = interaction.guild;
-            if (!guild) {
-                console.log('[Play Command] No guild');
-                await interaction.reply({ content: 'Lệnh chỉ dùng trong server.', flags: MessageFlags.Ephemeral });
-                return;
+        // 1. Kiểm tra voice channel
+        const member = interaction.member;
+        const voiceChannel = member.voice.channel;
+
+        if (!voiceChannel) {
+            return interaction.reply({ content: '❌ Vui lòng vào kênh voice trước khi sử dụng lệnh này!', ephemeral: true });
+        }
+
+        await interaction.deferReply();
+        const query = interaction.options.getString('query');
+
+        // 2. Tìm nhạc qua Lavalink (Nó tự tìm YouTube, Spotify, SoundCloud...)
+        const res = await poru.resolve({ query: query, source: 'ytsearch', requester: interaction.user });
+
+        if (res.loadType === 'LOAD_FAILED') {
+            return interaction.editReply('❌ Lỗi khi tải nhạc rồi.');
+        } else if (res.loadType === 'NO_MATCHES') {
+            return interaction.editReply('❌ Không tìm thấy bài nào!');
+        }
+
+        // 3. Tạo Player kết nối vào kênh voice
+        const player = poru.createConnection({
+            guildId: interaction.guild.id,
+            voiceChannel: voiceChannel.id,
+            textChannel: interaction.channel.id,
+            deaf: false,
+        });
+        await applyAudioSettings(player);
+        // 4. Xử lý kết quả (Playlist hoặc bài đơn)
+        if (res.loadType === 'PLAYLIST_LOADED') {
+            for (const track of res.tracks) {
+                track.info.requester = interaction.user;
+                player.queue.add(track);
             }
-            const voiceChannel = interaction.member?.voice?.channel;
-            if (!voiceChannel) {
-                console.log('[Play Command] No voice channel');
-                await interaction.reply({ content: 'Bạn cần vào voice channel trước.', flags: MessageFlags.Ephemeral });
-                return;
-            }
+            await interaction.editReply(`✅ Đã thêm playlist **${res.playlistInfo.name}** (${res.tracks.length} bài)`);
+        } else {
+            // TRACK_LOADED hoặc SEARCH_RESULT
+            const track = res.tracks[0];
+            track.info.requester = interaction.user;
+            player.queue.add(track);
+            await interaction.editReply(`✅ Đã thêm vào hàng chờ: **${track.info.title}**`);
+        }
 
-            console.log('[Play Command] Deferring reply...');
-            await interaction.deferReply({ ephemeral: true });
-
-            const query = interaction.options.getString('query', true).trim();
-            console.log('[Play Command] Query:', query);
-
-            if (!query) {
-                await interaction.editReply('Vui lòng nhập URL hoặc tên bài.');
-                return;
-            }
-
-            console.log('[Play Command] Resolving track...');
-            const track = await resolveTrack(query);
-            console.log('[Play Command] Resolved track:', track);
-
-            if (!track) {
-                await interaction.editReply('Không tìm thấy bài nào.');
-                return;
-            }
-
-            const guildId = guild.id;
-            console.log('[Play Command] Joining voice...');
-            musicPlayer.join(voiceChannel);
-
-            console.log('[Play Command] Adding track to queue...');
-            const nowPlaying = musicPlayer.addTrack(guildId, {
-                url: track.url,
-                title: track.title,
-                requestedBy: interaction.user.tag,
-            });
-
-            const msg = nowPlaying ? `Đang phát **${track.title}**.` : `Đã thêm **${track.title}** vào queue.`;
-            await interaction.editReply(msg);
-            console.log('[Play Command] Done.');
-
-            GuildMusicQueue.updateOne(
-                { guildId },
-                { $push: { tracks: { url: track.url, title: track.title, requestedBy: interaction.user.tag, addedAt: new Date() } }, $set: { updatedAt: new Date() } },
-                { upsert: true }
-            ).catch((e) => console.error('[GuildMusicQueue]', e));
-
-            MusicLog.create({
-                guildId,
-                action: 'add',
-                track: { url: track.url, title: track.title, requestedBy: interaction.user.tag },
-                requestedBy: interaction.user.tag,
-                userId: interaction.user.id,
-            }).catch((e) => console.error('[MusicLog]', e));
-        } catch (err) {
-            console.error('[Play Command Error]', err);
-            try {
-                if (interaction.deferred) {
-                    await interaction.editReply('Lỗi khi tìm hoặc phát (stream/nguồn không hỗ trợ).').catch((e) => console.error('Error sending error response:', e));
-                } else {
-                    await interaction.reply({ content: 'Lỗi khi tìm hoặc phát.', flags: MessageFlags.Ephemeral }).catch((e) => console.error('Error sending error response:', e));
-                }
-            } catch (_) { }
+        // 5. Nếu chưa phát thì phát luôn
+        if (!player.isPlaying && !player.isPaused) {
+            player.play();
         }
     },
 };

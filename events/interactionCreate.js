@@ -1,7 +1,16 @@
 import { Events, MessageFlags } from "discord.js";
+import { getConfig } from "../utils/configUtils.js";
 
 export default (client) => {
     client.on(Events.InteractionCreate, async interaction => {
+        // --- CHECK MOI TRUONG DEPLOY ---
+        const isLinux = process.platform === 'linux';
+        const isStopDeployActive = await getConfig('stop_deploy');
+
+        if (isLinux && isStopDeployActive) {
+            // Stop immediately if on Linux and stop_deploy is active
+            return;
+        }
 
         // --- 0. XỬ LÝ WELCOME BUTTON ---
         if (interaction.isButton() && interaction.customId.startsWith('welcome_')) {
@@ -54,9 +63,9 @@ export default (client) => {
                     ? '❌ Bot không đủ quyền **Manage Roles** hoặc role cao hơn bot.'
                     : (err.message || '❌ Có lỗi khi thay đổi role.');
                 if (!interaction.replied && !interaction.deferred) {
-                    return interaction.reply({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => {});
+                    return interaction.reply({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => { });
                 }
-                return interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => {});
+                return interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => { });
             }
         }
 

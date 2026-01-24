@@ -11,6 +11,6 @@ const PostedCodesSchema = new mongoose.Schema({
     rewards: { type: String, default: null } // Cột Rewards — phần thưởng khi đổi code
 });
 
-PostedCodesSchema.index({ postId: 1, channelId: 1 }, { unique: true });
+PostedCodesSchema.index({ code: 1, channelId: 1 }, { unique: true });
 
 export default mongoose.model("PostedCodes", PostedCodesSchema);

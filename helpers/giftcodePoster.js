@@ -52,12 +52,12 @@ function parseDuration(text) {
         const expiryDate = new Date(validMatch[1].trim());
         if (!isNaN(expiryDate.getTime())) {
             validUntil = expiryDate;
-            
+
             // normalize to midnight for comparison
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             expiryDate.setHours(0, 0, 0, 0);
-            
+
             isActive = expiryDate >= today;
         }
     }
@@ -112,7 +112,7 @@ async function fetchActiveCodes() {
             // 2. Logic: Date Validation
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            
+
             const discDate = new Date(discoveredAt);
             discDate.setHours(0, 0, 0, 0);
 
@@ -125,13 +125,13 @@ async function fetchActiveCodes() {
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - SCRAPER_CONFIG.maxDiscoveredDays);
             cutoffDate.setHours(0, 0, 0, 0);
-            
+
             if (discDate < cutoffDate) return;
 
             // 3. Extract Data
             const server = $(cols[IDX.SERVER]).text().trim().replace(/\n/g, ", ").slice(0, 200);
             const rewards = $(cols[IDX.REWARDS]).text().trim().replace(/\n/g, ", ").slice(0, 400);
-            
+
             // Extract Code String (Handle <code> tags or plain text or links)
             const rawCodeCell = $(cols[IDX.CODE]);
             let extractedCodes = [];
@@ -206,7 +206,7 @@ async function distributeCodes(client) {
                     const channelId = channelConfig.channelId;
 
                     // 4. Check Duplicate in DB
-                    const alreadyPosted = await PostedCodes.findOne({ postId: item.postId, channelId });
+                    const alreadyPosted = await PostedCodes.findOne({ code: item.code, channelId });
                     if (alreadyPosted) continue;
 
                     // 5. Fetch Discord Channel
@@ -268,7 +268,7 @@ function startGiftcodePoster(client) {
 
     // Schedule interval
     setInterval(() => distributeCodes(client), SCRAPER_CONFIG.interval);
-    
+
     console.log("✅ [GiftCode] Wiki Scraper service started.");
 }
 

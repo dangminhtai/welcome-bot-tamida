@@ -1,6 +1,7 @@
 import { Poru } from 'poru';
 import RadioSong from '../models/RadioSong.js';
 import MusicLog from '../models/MusicLog.js';
+import GuildMusicQueue from '../models/GuildMusicQueue.js';
 // Chỉ giữ lại Node "vàng" đã kết nối thành công
 const nodes = [
     {
@@ -16,42 +17,56 @@ export let poru;
 let client;
 
 
-
-// Hàm lấy 1 bài ngẫu nhiên từ DB
+// Hàm hỗ trợ: Lấy 1 bài hát ngẫu nhiên từ kho nhạc Radio
 async function getRandomTrack() {
-    // Lấy ngẫu nhiên 1 document từ MongoDB
     const randomSong = await RadioSong.aggregate([{ $sample: { size: 1 } }]);
     return randomSong.length > 0 ? randomSong[0] : null;
 }
 
 export function initLavalink(discordClient) {
     client = discordClient;
-    // ... (Giữ nguyên đoạn new Poru và poru.init) ...
+
+    // 1. Khởi tạo Poru
     poru = new Poru(client, nodes, {
         library: 'discord.js',
         defaultPlatform: 'ytsearch',
-        reconnectTries: Infinity,
+        reconnectTries: Infinity, // Cố gắng kết nối lại mãi mãi nếu rớt mạng
     });
+
+    // 2. Kích hoạt
     poru.init(client);
 
-    // ... (Giữ nguyên các event nodeConnect, nodeDisconnect, trackStart) ...
-    poru.on('nodeConnect', node => console.log(`✅ [Lavalink] Node ${node.name} Ready!`));
+    // --- CÁC SỰ KIỆN KẾT NỐI NODE ---
+    poru.on('nodeConnect', node => console.log(`✅ [Lavalink] Node ${node.name} đã kết nối thành công!`));
 
-    // SỬA SỰ KIỆN NÀY
+    poru.on('nodeDisconnect', node => console.log(`❌ [Lavalink] Mất kết nối Node: ${node.name}`));
+
+    poru.on('nodeError', (node, error) => console.log(`⚠️ [Lavalink] Node ${node.name} gặp lỗi: ${error.message}`));
+
+    // --- SỰ KIỆN KHI BẮT ĐẦU PHÁT NHẠC (TRACK START) ---
     poru.on('trackStart', async (player, track) => {
         const channel = client.channels.cache.get(player.textChannel);
 
-        // 1. Gửi thông báo Discord
+        // A. Gửi thông báo Discord
         if (channel) {
-            // Tạo thanh thời gian đơn giản
             const duration = track.info.length;
-            // Nếu là livestream thì không hiện thời gian
             const timeString = track.info.isStream ? "🔴 LIVE" : new Date(duration).toISOString().slice(14, 19);
+            const requester = track.info.requester?.tag || client.user.tag;
 
-            channel.send(`🎶 Đang phát: **${track.info.title}** \`[${timeString}]\`\n👤 Yêu cầu bởi: **${track.info.requester.tag || client.user.tag}**`);
+            channel.send(`🎶 Đang phát: **${track.info.title}** \`[${timeString}]\`\n👤 Yêu cầu bởi: **${requester}**`);
         }
 
-        // 2. GHI LOG VÀO MONGODB (QUAN TRỌNG)
+        // B. Đồng bộ Queue DB: Xóa bài đang phát khỏi danh sách chờ trong DB
+        try {
+            await GuildMusicQueue.updateOne(
+                { guildId: player.guildId },
+                { $pop: { tracks: -1 } } // Xóa phần tử đầu tiên (First In First Out)
+            );
+        } catch (e) {
+            console.error('⚠️ Lỗi đồng bộ Queue DB:', e);
+        }
+
+        // C. Ghi Log vào Database (Lịch sử nghe nhạc)
         try {
             await MusicLog.create({
                 guildId: player.guildId,
@@ -60,51 +75,53 @@ export function initLavalink(discordClient) {
                 trackUrl: track.info.uri,
                 trackAuthor: track.info.author,
                 duration: track.info.length,
-                requesterId: track.info.requester?.id || client.user.id, // Nếu ko có user thì là bot (24/7)
+                requesterId: track.info.requester?.id || client.user.id,
                 requesterTag: track.info.requester?.tag || client.user.tag,
-                isAutoPlay: player.isAutoplay || false // Đánh dấu nếu là nhạc 24/7
+                isAutoPlay: player.isAutoplay || false
             });
-            console.log(`💾 [DB Saved] Đã lưu log bài: ${track.info.title}`);
+            // console.log(`💾 [Log] Đã lưu bài: ${track.info.title}`);
         } catch (err) {
             console.error('❌ Lỗi khi lưu MusicLog:', err);
         }
     });
 
-    // --- SỬA SỰ KIỆN NÀY ĐỂ CHẠY 24/7 ---
+    // --- SỰ KIỆN KHI HẾT NHẠC TRONG HÀNG CHỜ (QUEUE END) ---
     poru.on('queueEnd', async (player) => {
         const channel = client.channels.cache.get(player.textChannel);
 
-        // Kiểm tra xem player này có đang bật chế độ 24/7 không?
-        // (Biến isAutoplay này ta sẽ gán bằng true trong lệnh play-247)
+        // A. Xử lý chế độ 24/7 (Radio Mode)
         if (player.isAutoplay) {
-
-            // 1. Lấy bài ngẫu nhiên từ DB
+            // 1. Lấy bài ngẫu nhiên từ DB RadioSong
             const songData = await getRandomTrack();
 
             if (!songData) {
-                if (channel) channel.send('⚠️ Kho nhạc Radio đang trống! Hãy dùng lệnh `/radio-add` để thêm nhạc.');
+                if (channel) channel.send('⚠️ Kho nhạc Radio đang trống! Admin hãy dùng `/radio-add` để thêm nhạc.');
                 player.isAutoplay = false; // Tắt chế độ 24/7
                 player.destroy();
                 return;
             }
 
-            // 2. Resolve bài hát
+            // 2. Tìm bài hát đó qua Lavalink
             const res = await poru.resolve({ query: songData.url, source: 'ytsearch', requester: client.user });
 
             if (res.loadType !== 'LOAD_FAILED' && res.loadType !== 'NO_MATCHES') {
                 const track = res.tracks[0];
-                track.info.requester = client.user; // Người yêu cầu là Bot
+                track.info.requester = client.user; // Bot tự yêu cầu
 
-                // 3. Thêm vào hàng chờ và phát
+                // 3. Thêm vào hàng chờ và phát ngay
                 player.queue.add(track);
                 player.play();
-                if (channel) channel.send(`📻 **Radio 24/7:** Đang phát ngẫu nhiên bài **${songData.title}**`);
-                return; // QUAN TRỌNG: Return để không chạy dòng destroy() bên dưới
+                if (channel) channel.send(`📻 **Radio 24/7:** Bot tự động phát bài ngẫu nhiên: **${songData.title}**`);
+                return; // QUAN TRỌNG: Return để không chạy lệnh destroy bên dưới
             }
         }
 
-        // Nếu không phải 24/7 thì tắt như thường
-        if (channel) channel.send('👋 Hết nhạc rồi, bot nghỉ ngơi đây!');
+        // B. Nếu không phải chế độ 24/7 -> Hết nhạc -> Nghỉ ngơi
+        if (channel) channel.send('👋 Hết nhạc rồi, bot đi ngủ đây!');
+
+        // Xóa sạch hàng chờ rác trong DB (nếu còn sót)
+        await GuildMusicQueue.deleteOne({ guildId: player.guildId }).catch(() => { });
+
         player.destroy();
     });
 }

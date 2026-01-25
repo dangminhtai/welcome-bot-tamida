@@ -7,7 +7,13 @@ import * as ChatHelper from '../helpers/chatHelper.js';
 
 class GeminiManager {
     constructor() {
-        this.logger = new Logger('Gemini');
+        // Logger wrapper specifically for Gemini prefix
+        this.logger = {
+            info: (msg) => Logger.info(`[Gemini] ${msg}`),
+            warn: (msg) => Logger.warn(`[Gemini] ${msg}`),
+            error: (msg) => Logger.error(`[Gemini] ${msg}`),
+            log: (msg) => Logger.info(`[Gemini] ${msg}`) // Polyfill log just in case
+        };
         this.modelId = 'gemini-3-flash-preview';
 
         this.systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
@@ -82,9 +88,8 @@ class GeminiManager {
                     }
                 });
 
-                // Check for Function Calls (Property access per docs)
                 if (response.functionCalls && response.functionCalls.length > 0) {
-                    this.logger.log(`Function Calls detected: ${response.functionCalls.map(c => c.name).join(', ')}`);
+                    this.logger.info(`Function Calls detected: ${response.functionCalls.map(c => c.name).join(', ')}`);
 
                     // 1. Add Model's Function Call to Context
                     const functionCallParts = response.functionCalls.map(call => ({

@@ -57,7 +57,6 @@ class GeminiManager {
         const newTurns = [userTurn];
 
         return await ApiKeyManager.execute(this.modelId, async (key) => {
-            // FIX: Luôn khởi tạo instance mới để đảm bảo key mới nhất
             const ai = new GoogleGenAI({ apiKey: key });
 
             let functionCallAttempts = 0;
@@ -76,14 +75,10 @@ class GeminiManager {
                     }
                 });
 
-                // FIX: response.text là Getter, không phải Function.
-                // Nếu gọi response.text() sẽ crash.
-                // Kiểm tra an toàn để tránh null/undefined
                 const candidate = response.candidates?.[0];
                 const content = candidate?.content;
                 const responseParts = content?.parts || [];
 
-                // Kiểm tra function call bằng cách duyệt parts (an toàn nhất)
                 const hasFunctionCall = responseParts.some(p => p.functionCall);
 
                 if (hasFunctionCall) {
@@ -94,7 +89,6 @@ class GeminiManager {
 
                     this.logger.info(`Function Calls detected: ${callNames}`);
 
-                    // 1. Add Model Turn (Giữ nguyên cấu trúc trả về từ Google để bảo toàn context)
                     const modelCallTurn = {
                         role: 'model',
                         parts: responseParts
@@ -102,7 +96,6 @@ class GeminiManager {
                     contents.push(modelCallTurn);
                     newTurns.push(modelCallTurn);
 
-                    // 2. Execute & Build Response
                     const functionResponseParts = [];
 
                     for (const part of responseParts) {
@@ -124,19 +117,16 @@ class GeminiManager {
                                 apiResponse = { error: `Function ${call.name} not found` };
                             }
 
-                            // FIX CRITICAL: Phải trả về 'id' của functionCall nếu có.
-                            // Nếu thiếu id, Google sẽ báo lỗi hoặc hallucinate.
                             functionResponseParts.push({
                                 functionResponse: {
                                     name: call.name,
                                     response: apiResponse,
-                                    id: call.id // <--- QUAN TRỌNG
+                                    id: call.id
                                 }
                             });
                         }
                     }
 
-                    // 3. Add User (Function Response) Turn
                     const functionResponseTurn = {
                         role: 'user',
                         parts: functionResponseParts
@@ -145,7 +135,6 @@ class GeminiManager {
                     newTurns.push(functionResponseTurn);
 
                 } else {
-                    // FIX: Lấy text an toàn qua getter .text (không có ngoặc tròn)
                     finalResponseText = response.text || responseParts.find(p => p.text)?.text || "";
 
                     newTurns.push({

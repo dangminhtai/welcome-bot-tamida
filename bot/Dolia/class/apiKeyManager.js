@@ -55,14 +55,11 @@ class ApiKeyManager {
         }
 
         if (validKeys.length === 0) {
-            // OPTIMIZATION: Nếu hết key, force reload lại từ DB đề phòng có key mới thêm
-            // hoặc key cũ đã hết hạn suspend nhưng RAM chưa cập nhật (edge case)
             console.warn('All keys suspended, forcing DB reload...');
             await this.loadKeys();
             if (this.pool.length === 0) throw new Error(`All ${this.pool.length} API keys are currently rate-limited/suspended.`);
         }
 
-        // Round-robin selection
         const entry = validKeys[this.index % validKeys.length];
         this.index++;
         entry.lastUsed = now;
@@ -97,7 +94,6 @@ class ApiKeyManager {
     }
 
     async execute(modelId, task) {
-        // Tăng số lần retry lên một chút nếu pool lớn
         const MAX_RETRIES = this.pool.length > 0 ? this.pool.length + 2 : 3;
         let attempt = 0;
         let lastError = null;
@@ -108,7 +104,7 @@ class ApiKeyManager {
                 key = await this._getNextKey(modelId);
             } catch (e) {
                 console.warn(`⚠️ ${e.message}`);
-                throw e; // Hết key thật rồi thì thua
+                throw e;
             }
 
             try {
@@ -116,10 +112,6 @@ class ApiKeyManager {
             } catch (e) {
                 lastError = e;
 
-                // --- ERROR CLASSIFICATION ---
-                // Sửa lỗi logic check TypeError: 
-                // Trước đó code cũ bắt TypeError (do response.text() sai) và dừng luôn.
-                // Bây giờ code GeminiManager đã fix, nhưng ta vẫn nên log kỹ hơn.
                 if (e instanceof TypeError || e instanceof ReferenceError || e instanceof SyntaxError) {
                     console.error(`❌ CODE BUG (NON-RETRYABLE): ${e.message}`, e.stack);
                     throw e;
@@ -130,7 +122,6 @@ class ApiKeyManager {
                 const action = getActionForError(statusText, statusCode);
 
                 let waitMs = 60000;
-                // Parse retry delay from Google headers/body
                 const retryDelay = e?.error?.details?.find(d => d['@type']?.includes('RetryInfo'))?.retryDelay;
                 if (retryDelay) {
                     waitMs = parseFloat(retryDelay) * 1000;
@@ -145,17 +136,14 @@ class ApiKeyManager {
                         await this.markRateLimited(key, modelId, waitMs);
                     }
 
-                    // FIX: Thêm delay nhỏ kể cả khi đổi key
-                    // Lý do: Nếu IP bị rate limit, đổi key ngay lập tức vẫn sẽ dính 429.
                     await new Promise(r => setTimeout(r, 1000));
 
                 } else if (action === ACTIONS.RETRY) {
-                    // Exponential backoff đơn giản
                     const backoff = 2000 * (attempt + 1);
                     console.log(`Waiting ${backoff}ms before retry...`);
                     await new Promise(r => setTimeout(r, backoff));
                 } else {
-                    throw e; // ABORT or UNKNOWN
+                    throw e;
                 }
 
                 attempt++;

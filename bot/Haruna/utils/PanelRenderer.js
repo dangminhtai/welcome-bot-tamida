@@ -29,14 +29,14 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
         if (player && currentTrack) {
             embed.setColor('#0099ff')
                 .setTitle('💿 TRÌNH PHÁT NHẠC')
-                .setDescription(`**[${currentTrack.info.title}](${currentTrack.info.uri})**`)
-                .setThumbnail(currentTrack.info.artworkUrl || currentTrack.info.image)
+                .setDescription(`**[${currentTrack?.info?.title || 'Unknown Title'}](${currentTrack?.info?.uri || '#'})**`)
+                .setThumbnail(currentTrack?.info?.artworkUrl || currentTrack?.info?.image || 'https://i.imgur.com/7R8Zq0D.png')
                 .addFields(
-                    { name: 'Ca sĩ', value: currentTrack.info.author, inline: true },
-                    { name: 'Người yêu cầu', value: currentTrack.info.requester?.tag || 'System', inline: true },
+                    { name: 'Ca sĩ', value: currentTrack?.info?.author || 'Unknown Artist', inline: true },
+                    { name: 'Người yêu cầu', value: currentTrack?.info?.requester?.tag || 'System', inline: true },
                     {
-                        name: `Thời gian (${formatTime(player.position)} / ${formatTime(currentTrack.info.length)})`,
-                        value: createProgressBar(player.position, currentTrack.info.length),
+                        name: `Thời gian (${formatTime(player.position)} / ${formatTime(currentTrack?.info?.length || 0)})`,
+                        value: createProgressBar(player.position, currentTrack?.info?.length || 0),
                         inline: false
                     },
                     {

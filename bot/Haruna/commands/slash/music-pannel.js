@@ -6,7 +6,7 @@ import { renderMusicPanel } from '../../utils/PanelRenderer.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('music-panel')
-        .setDescription('Mở bảng điều khiển âm nhạc Bất Tử'),
+        .setDescription('Mở bảng điều khiển âm nhạc'),
 
     async execute(interaction) {
         if (!interaction.guild) return interaction.reply({ content: 'Chỉ dùng trong Server!', ephemeral: true });

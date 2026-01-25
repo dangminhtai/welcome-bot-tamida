@@ -60,7 +60,13 @@ export default (client) => {
 
                         const tracksToAdd = [];
                         let replyMsg = '';
-                        const res = await poru.resolve({ query: query, source: 'ytsearch', requester: interaction.user });
+                        const isUrl = /^https?:\/\//.test(query);
+                        const res = await poru.resolve({ query: query, source: isUrl ? null : 'ytsearch', requester: interaction.user });
+
+                        if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
+                            console.log(`[Music Panel] Load Failed: ${query} | Type: ${res.loadType} | Exception:`, res.exception);
+                            return interaction.editReply(`❌ Không tìm thấy bài hát! (Lỗi: ${res.loadType})`);
+                        }
 
                         if (isPriority) {
                             if (res.loadType === 'TRACK_LOADED' || res.loadType === 'SEARCH_RESULT') {
@@ -70,7 +76,15 @@ export default (client) => {
                                 tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
                                 if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
                                 replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}**!`;
-                            } else { replyMsg = '❌ Không tìm thấy bài hát ưu tiên!'; }
+                            } else if (res.loadType === 'PLAYLIST_LOADED') {
+                                const track = res.tracks[0];
+                                track.info.requester = interaction.user;
+                                player.queue.unshift(track);
+                                tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
+                                if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
+                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}** (từ Playlist)!`;
+                            }
+                            else { replyMsg = '❌ Không tìm thấy bài hát ưu tiên!'; }
                         } else {
                             if (res.loadType === 'PLAYLIST_LOADED') {
                                 for (const track of res.tracks) {

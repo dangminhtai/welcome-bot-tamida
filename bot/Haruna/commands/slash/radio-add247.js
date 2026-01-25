@@ -4,7 +4,7 @@ import RadioSong from '../../models/RadioSong.js';
 
 export default {
     data: new SlashCommandBuilder()
-        .setName('radio-add')
+        .setName('radio-add247')
         .setDescription('Thêm bài hát vào kho nhạc 24/7')
         .addStringOption(o => o.setName('query').setDescription('Link bài hát hoặc tên').setRequired(true))
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator), // Chỉ Admin được dùng

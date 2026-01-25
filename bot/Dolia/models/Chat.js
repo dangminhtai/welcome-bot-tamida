@@ -1,12 +1,14 @@
 import mongoose from "mongoose";
 
+const partSchema = new mongoose.Schema({
+    text: { type: String },
+    functionCall: { type: Object }, // { name: String, args: Object }
+    functionResponse: { type: Object } // { name: String, response: Object }
+}, { _id: false });
+
 const chatTurnSchema = new mongoose.Schema({
-    user: {
-        parts: [{ text: { type: String, required: true } }]
-    },
-    model: {
-        parts: [{ text: { type: String, required: true } }]
-    },
+    role: { type: String, required: true, enum: ['user', 'model'] },
+    parts: [partSchema],
     createdAt: { type: Date, default: Date.now }
 }, { _id: false });
 

@@ -1,5 +1,5 @@
-import keyManager from '../class/apiKeyManager.js';
-import { Gemini } from '../class/gemini.js';
+import Chat from '../models/Chat.js';
+import User from '../models/User.js';
 
 export async function getChatSession(userId, channelId) {
     let chatSession = await Chat.findOne({ userId, channelId });
@@ -11,71 +11,50 @@ export async function getChatSession(userId, channelId) {
 
 export async function getHistory(userId, chatSession) {
     const user = await User.findOne({ userId });
-    const limit = user.chatLimit || 20;
+    const limit = user?.chatLimit || 20;
 
-    return JSON.parse(JSON.stringify(chatSession.turns.slice(-limit).flatMap(turn => [
-        {
-            role: "user",
-            parts: turn.user.parts.map(p => ({ text: p.text }))
-        },
-        {
-            role: "model",
-            parts: turn.model.parts.map(p => ({ text: p.text }))
-        }
-    ])));
-}
+    // Slice last N turns
+    const relevantTurns = chatSession.turns.slice(-limit);
 
+    // Map DB schema to Gemini API Content format
+    return relevantTurns.map(turn => {
+        const parts = turn.parts.map(p => {
+            const part = {};
+            if (p.text) part.text = p.text;
+            if (p.functionCall) part.functionCall = p.functionCall;
+            if (p.functionResponse) part.functionResponse = p.functionResponse;
+            return part;
+        });
 
-export async function genRes(userId, userContent, history, systemPrompt, generationConfig = {}) {
-    const userPref = await User.findOne({ userId });
-    const preferredModel = userPref?.selectedModel || 'dynamic';
-    // Thay thế placeholder trong sysPrompt hoặc nối đuôi nếu không tìm thấy
-    let finalSystemPrompt = systemPrompt;
-    // console.log(finalSystemPrompt);
-    let modelsToTry = MODEL_PRIORITY;
-    if (preferredModel !== 'dynamic') {
-        modelsToTry = [preferredModel];
-    }
-
-    let lastError = null;
-
-    for (const modelId of modelsToTry) {
-        try {
-            const result = await keyManager.execute(modelId, async (apiKey) => {
-                const gemini = new Gemini(apiKey, finalSystemPrompt, modelId);
-                const chat = gemini.createChat(history, generationConfig);
-                const text = await gemini.sendMessage(chat, userContent);
-                return { responseText: text, usedKey: apiKey, modelId: gemini.modelId };
-            });
-
-            if (result) return result;
-
-        } catch (error) {
-            lastError = error;
-            console.warn(`⚠️ Model ${modelId} skipped: ${error.message}`);
-        }
-    }
-
-    throw lastError || new Error("All models failed.");
-}
-
-export async function saveInteraction(chatSession, userContent, responseText, modelId, usedKey) {
-    chatSession.turns.push({
-        user: { parts: [{ text: userContent }] },
-        model: { parts: [{ text: responseText }] }
+        return {
+            role: turn.role,
+            parts: parts
+        };
     });
-    await chatSession.save();
+}
 
-    if (usedKey) {
-        const keySuffix = usedKey.slice(-4);
-        try {
-            await RateLimit.findOneAndUpdate(
-                { model: modelId, apiKey: keySuffix },
-                { $inc: { rpm: 1, rpd: 1 } },
-                { upsert: true, new: true }
-            );
-        } catch (err) {
-            console.error("RateLimit update error:", err);
-        }
+export async function saveInteraction(chatSession, newContents) {
+    // newContents: Array of { role, parts }
+    // We append them to the session turns
+    for (const content of newContents) {
+        // Map Gemini Content to DB Schema
+        const dbParts = content.parts.map(p => {
+            const part = {};
+            if (p.text) part.text = p.text;
+            if (p.functionCall) part.functionCall = p.functionCall;
+            if (p.functionResponse) part.functionResponse = p.functionResponse;
+            // Handle raw object if SDK returns strangely
+            if (!part.text && !part.functionCall && !part.functionResponse && typeof p === 'string') {
+                part.text = p;
+            }
+            return part;
+        });
+
+        chatSession.turns.push({
+            role: content.role,
+            parts: dbParts
+        });
     }
+
+    await chatSession.save();
 }

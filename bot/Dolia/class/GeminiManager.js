@@ -3,6 +3,7 @@ import ApiKeyManager from './apiKeyManager.js';
 import Logger from './Logger.js';
 import { musicTools } from '../schema/musicTools.js';
 import * as MusicFunctions from '../utils/musicFunctions.js';
+import * as ChatHelper from '../helpers/chatHelper.js';
 
 class GeminiManager {
     constructor() {
@@ -12,14 +13,17 @@ class GeminiManager {
         this.systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
 - Tính cách: Vui vẻ, thân thiện, dùng nhiều emoji (🎵, ✨, 🎧, UwU).
 - Nhiệm vụ: Giúp người dùng nghe nhạc, quản lý radio và giải đáp thắc mắc.
+- Ghi nhớ user: Bạn có khả năng nhớ tên và sở thích của user từ lịch sử chat.
 - Nguyên tắc:
   1. Trả lời ngắn gọn, đi vào trọng tâm.
   2. Nếu người dùng muốn nghe nhạc -> gọi tool 'play_music'.
   3. Nếu muốn mở bảng điều khiển -> gọi tool 'show_music_panel'.
   4. Luôn kiểm tra tool phù hợp trước khi trả lời.`;
 
+        // Tool Definitions
         this.tools = [{ functionDeclarations: musicTools }];
 
+        // Function Map
         this.functions = {
             'play_music': MusicFunctions.play_music,
             'control_playback': MusicFunctions.control_playback,
@@ -30,79 +34,129 @@ class GeminiManager {
     }
 
     async chat(message) {
-        // 1. Prepare Context & History
+        // 1. Prepare Context
         const context = {
             guild: message.guild,
             channel: message.channel,
             user: message.author
         };
 
-        const historyMessages = await message.channel.messages.fetch({ limit: 10, before: message.id });
-        const history = Array.from(historyMessages.values())
-            .filter(m => !m.author.bot || m.author.id === this.client?.user?.id) // Filter other bots? Keep self.
-            .reverse()
-            .map(m => ({
-                role: m.author.id === message.client.user.id ? 'model' : 'user',
-                parts: [{ text: m.cleanContent || ' ' }]
-            }));
+        const userId = message.author.id;
+        const channelId = message.channel.id;
 
-        // 2. Execute with API Key Rotation
+        // 2. Fetch DB History
+        // Get or Create Session
+        const chatSession = await ChatHelper.getChatSession(userId, channelId);
+        // Get formatted history for Gemini API
+        const contents = await ChatHelper.getHistory(userId, chatSession);
+
+        // Add User Message to History
+        const userTurn = {
+            role: 'user',
+            parts: [{ text: message.cleanContent }]
+        };
+        contents.push(userTurn);
+
+        // Track new turns to save later
+        const newTurns = [userTurn];
+
+        // 3. Execute with API Key Rotation
         return await ApiKeyManager.execute(this.modelId, async (key) => {
-            const client = new GoogleGenAI({ apiKey: key });
-            const model = client.getGenerativeModel({
-                model: this.modelId,
-                tools: this.tools,
-                systemInstruction: this.systemInstruction
-            });
+            const ai = new GoogleGenAI({ apiKey: key });
 
-            const chatSession = model.startChat({ history });
-
-            // 3. Send Message & Handle Function Calls
-            let result = await chatSession.sendMessage(message.cleanContent);
-            let response = result.response;
-
-            // Loop max 5 turns to prevent infinite loops
+            // Loop max 5 turns for function calling
             let functionCallAttempts = 0;
+            let finalResponseText = null;
+
             while (functionCallAttempts < 5) {
-                const calls = response.functionCalls();
-                if (!calls || calls.length === 0) break;
+                // Generate Content
+                const response = await ai.models.generateContent({
+                    model: this.modelId,
+                    contents: contents,
+                    config: {
+                        tools: this.tools,
+                        systemInstruction: this.systemInstruction,
+                        temperature: 1.5,
+                        topK: 40,
+                        topP: 0.95
+                    }
+                });
 
-                this.logger.log(`Function Calls detected: ${calls.map(c => c.name).join(', ')}`);
+                // Check for Function Calls (Property access per docs)
+                if (response.functionCalls && response.functionCalls.length > 0) {
+                    this.logger.log(`Function Calls detected: ${response.functionCalls.map(c => c.name).join(', ')}`);
 
-                const functionResponses = [];
-
-                for (const call of calls) {
-                    const fn = this.functions[call.name];
-                    let apiResponse;
-
-                    if (fn) {
-                        try {
-                            // Inject context into arguments
-                            const args = { ...call.args, ...context };
-                            apiResponse = await fn(args);
-                        } catch (error) {
-                            apiResponse = `Error executing ${call.name}: ${error.message}`;
-                            console.error(error);
+                    // 1. Add Model's Function Call to Context
+                    const functionCallParts = response.functionCalls.map(call => ({
+                        functionCall: {
+                            name: call.name,
+                            args: call.args
                         }
-                    } else {
-                        apiResponse = `Error: Function ${call.name} not found.`;
+                    }));
+
+                    const modelCallTurn = {
+                        role: 'model',
+                        parts: functionCallParts
+                    };
+                    contents.push(modelCallTurn);
+                    newTurns.push(modelCallTurn);
+
+                    // 2. Execute Functions & Build Responses
+                    const functionResponseParts = [];
+                    for (const call of response.functionCalls) {
+                        const fn = this.functions[call.name];
+                        let apiResponse;
+
+                        if (fn) {
+                            try {
+                                const args = { ...call.args, ...context };
+                                const result = await fn(args);
+                                apiResponse = { result: result };
+                            } catch (error) {
+                                apiResponse = { error: error.message };
+                                console.error(`Error executing ${call.name}:`, error);
+                            }
+                        } else {
+                            apiResponse = { error: `Function ${call.name} not found` };
+                        }
+
+                        functionResponseParts.push({
+                            functionResponse: {
+                                name: call.name,
+                                response: apiResponse
+                            }
+                        });
                     }
 
-                    functionResponses.push({
-                        functionResponse: {
-                            name: call.name,
-                            response: { result: apiResponse }
-                        }
+                    // 3. Add Function Responses to Context
+                    const functionResponseTurn = {
+                        role: 'user',
+                        parts: functionResponseParts
+                    };
+                    contents.push(functionResponseTurn);
+                    newTurns.push(functionResponseTurn);
+
+                } else {
+                    // No function calls, just text
+                    finalResponseText = response.text;
+                    // Add Final Model Response to New Turns
+                    newTurns.push({
+                        role: 'model',
+                        parts: [{ text: finalResponseText }]
                     });
+
+                    break;
                 }
 
-                // Send function execution results back to the model
-                result = await chatSession.sendMessage(functionResponses);
-                response = result.response;
                 functionCallAttempts++;
             }
 
-            return response.text();
+            // 4. Save Interaction to DB
+            if (newTurns.length > 0) {
+                await ChatHelper.saveInteraction(chatSession, newTurns);
+            }
+
+            return finalResponseText;
         });
     }
 }

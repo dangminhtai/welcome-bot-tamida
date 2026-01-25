@@ -48,6 +48,7 @@ export default {
         .setDescription('Mở bảng điều khiển âm nhạc tất-cả-trong-một (All-in-One)'),
 
     async execute(interaction) {
+        if (!interaction.guild) return interaction.reply({ content: 'Lệnh này chỉ dùng được trong Server!', ephemeral: true });
         await interaction.deferReply();
         const guildId = interaction.guild.id;
         let currentRadioPage = 1; // Biến lưu trang hiện tại của Radio

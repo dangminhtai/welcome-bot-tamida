@@ -7,12 +7,11 @@ import * as ChatHelper from '../helpers/chatHelper.js';
 
 class GeminiManager {
     constructor() {
-        // Logger wrapper specifically for Gemini prefix
         this.logger = {
             info: (msg) => Logger.info(`[Gemini] ${msg}`),
             warn: (msg) => Logger.warn(`[Gemini] ${msg}`),
             error: (msg) => Logger.error(`[Gemini] ${msg}`),
-            log: (msg) => Logger.info(`[Gemini] ${msg}`) // Polyfill log just in case
+            log: (msg) => Logger.info(`[Gemini] ${msg}`)
         };
         this.modelId = 'gemini-3-flash-preview';
 
@@ -26,10 +25,8 @@ class GeminiManager {
   3. Nếu muốn mở bảng điều khiển -> gọi tool 'show_music_panel'.
   4. Luôn kiểm tra tool phù hợp trước khi trả lời.`;
 
-        // Tool Definitions
         this.tools = [{ functionDeclarations: musicTools }];
 
-        // Function Map
         this.functions = {
             'play_music': MusicFunctions.play_music,
             'control_playback': MusicFunctions.control_playback,
@@ -40,7 +37,6 @@ class GeminiManager {
     }
 
     async chat(message) {
-        // 1. Prepare Context
         const context = {
             guild: message.guild,
             channel: message.channel,
@@ -50,32 +46,24 @@ class GeminiManager {
         const userId = message.author.id;
         const channelId = message.channel.id;
 
-        // 2. Fetch DB History
-        // Get or Create Session
         const chatSession = await ChatHelper.getChatSession(userId, channelId);
-        // Get formatted history for Gemini API
         const contents = await ChatHelper.getHistory(userId, chatSession);
 
-        // Add User Message to History
         const userTurn = {
             role: 'user',
             parts: [{ text: message.cleanContent }]
         };
         contents.push(userTurn);
-
-        // Track new turns to save later
         const newTurns = [userTurn];
 
-        // 3. Execute with API Key Rotation
         return await ApiKeyManager.execute(this.modelId, async (key) => {
+            // FIX: Luôn khởi tạo instance mới để đảm bảo key mới nhất
             const ai = new GoogleGenAI({ apiKey: key });
 
-            // Loop max 5 turns for function calling
             let functionCallAttempts = 0;
             let finalResponseText = null;
 
             while (functionCallAttempts < 5) {
-                // Generate Content
                 const response = await ai.models.generateContent({
                     model: this.modelId,
                     contents: contents,
@@ -88,25 +76,33 @@ class GeminiManager {
                     }
                 });
 
-                // Check for Function Calls
-                const functionCalls = response.functionCalls ? response.functionCalls() : [];
-                // More reliable check using parts for history preservation
-                const responseParts = response.candidates?.[0]?.content?.parts || [];
+                // FIX: response.text là Getter, không phải Function.
+                // Nếu gọi response.text() sẽ crash.
+                // Kiểm tra an toàn để tránh null/undefined
+                const candidate = response.candidates?.[0];
+                const content = candidate?.content;
+                const responseParts = content?.parts || [];
+
+                // Kiểm tra function call bằng cách duyệt parts (an toàn nhất)
                 const hasFunctionCall = responseParts.some(p => p.functionCall);
 
                 if (hasFunctionCall) {
-                    const callNames = responseParts.filter(p => p.functionCall).map(p => p.functionCall.name).join(', ');
+                    const callNames = responseParts
+                        .filter(p => p.functionCall)
+                        .map(p => p.functionCall.name)
+                        .join(', ');
+
                     this.logger.info(`Function Calls detected: ${callNames}`);
 
-                    // 1. Add Model's Function Call to Context (EXACT parts from API to preserve thought_signature)
+                    // 1. Add Model Turn (Giữ nguyên cấu trúc trả về từ Google để bảo toàn context)
                     const modelCallTurn = {
                         role: 'model',
-                        parts: responseParts // Use the exact parts returned by Gemini
+                        parts: responseParts
                     };
                     contents.push(modelCallTurn);
                     newTurns.push(modelCallTurn);
 
-                    // 2. Execute Functions & Build Responses
+                    // 2. Execute & Build Response
                     const functionResponseParts = [];
 
                     for (const part of responseParts) {
@@ -128,28 +124,30 @@ class GeminiManager {
                                 apiResponse = { error: `Function ${call.name} not found` };
                             }
 
+                            // FIX CRITICAL: Phải trả về 'id' của functionCall nếu có.
+                            // Nếu thiếu id, Google sẽ báo lỗi hoặc hallucinate.
                             functionResponseParts.push({
                                 functionResponse: {
                                     name: call.name,
-                                    response: apiResponse
+                                    response: apiResponse,
+                                    id: call.id // <--- QUAN TRỌNG
                                 }
                             });
                         }
                     }
 
-                    // 3. Add Function Responses to Context
+                    // 3. Add User (Function Response) Turn
                     const functionResponseTurn = {
-                        role: 'user', // Gemini API expects function responses in 'user' role usually, or 'function' depending on SDK version. 
-                        // For @google/genai, usually 'user' with functionResponse parts is correct.
+                        role: 'user',
                         parts: functionResponseParts
                     };
                     contents.push(functionResponseTurn);
                     newTurns.push(functionResponseTurn);
 
                 } else {
-                    // No function calls, just text
-                    finalResponseText = response.text ? response.text() : response.candidates?.[0]?.content?.parts?.[0]?.text;
-                    // Add Final Model Response to New Turns
+                    // FIX: Lấy text an toàn qua getter .text (không có ngoặc tròn)
+                    finalResponseText = response.text || responseParts.find(p => p.text)?.text || "";
+
                     newTurns.push({
                         role: 'model',
                         parts: [{ text: finalResponseText }]
@@ -161,7 +159,6 @@ class GeminiManager {
                 functionCallAttempts++;
             }
 
-            // 4. Save Interaction to DB
             if (newTurns.length > 0) {
                 await ChatHelper.saveInteraction(chatSession, newTurns);
             }

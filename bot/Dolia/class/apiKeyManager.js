@@ -7,7 +7,6 @@ class ApiKeyManager {
         this.pool = [];
         this.index = 0;
         this.isInitialized = false;
-        // Local cache for suspension to reduce DB hits
         this.suspensionCache = new Map();
     }
 
@@ -16,7 +15,7 @@ class ApiKeyManager {
             const keys = await APIKey.find({ isActive: true });
             if (!keys || keys.length === 0) {
                 console.warn('⚠️ No active API Keys found in Database.');
-                this.pool = []; // Clear pool if empty
+                this.pool = [];
                 return;
             }
 
@@ -34,24 +33,6 @@ class ApiKeyManager {
         }
     }
 
-    async _checkSuspension(key, modelId) {
-        // 1. Check strict local cache first
-        const cacheKey = `${key}_${modelId}`;
-        const suspendedUntil = this.suspensionCache.get(cacheKey);
-        if (suspendedUntil && suspendedUntil > Date.now()) {
-            return true;
-        }
-
-        // 2. Check DB (Periodically or on cache miss? To avoid spamming DB, we rely on local cache mostly when running)
-        // But for multiple instances compatibility, we should verify DB if local says clear.
-        // For performance, let's assume if local cache is clear, we might try.
-        // BUT if we want robust anti-spam, let's just query active suspensions once on load or lazily.
-        // Let's implement lazy DB check if we failed locally? No, that's too late.
-        // Simplified: Trust local cache for now. DB write ensures other bots see it (if we synced).
-        // Since we are single instance for now, local map is fine + DB write for persistence.
-        return false;
-    }
-
     async _getNextKey(modelId) {
         if (!this.isInitialized || this.pool.length === 0) {
             await this.loadKeys();
@@ -61,7 +42,6 @@ class ApiKeyManager {
             throw new Error('No active API keys available.');
         }
 
-        // Filter out suspended keys
         const validKeys = [];
         const now = Date.now();
 
@@ -75,13 +55,14 @@ class ApiKeyManager {
         }
 
         if (validKeys.length === 0) {
-            // Check if we should re-sync from DB?
-            // Maybe some keys are valid now?
-            // Calculate minimum wait
-            throw new Error(`All ${this.pool.length} API keys are currently rate-limited/suspended.`);
+            // OPTIMIZATION: Nếu hết key, force reload lại từ DB đề phòng có key mới thêm
+            // hoặc key cũ đã hết hạn suspend nhưng RAM chưa cập nhật (edge case)
+            console.warn('All keys suspended, forcing DB reload...');
+            await this.loadKeys();
+            if (this.pool.length === 0) throw new Error(`All ${this.pool.length} API keys are currently rate-limited/suspended.`);
         }
 
-        // Round Robin
+        // Round-robin selection
         const entry = validKeys[this.index % validKeys.length];
         this.index++;
         entry.lastUsed = now;
@@ -90,12 +71,9 @@ class ApiKeyManager {
 
     async markRateLimited(key, modelId, ms = 60000) {
         const until = Date.now() + ms;
-
-        // 1. Update Local Cache
         const cacheKey = `${key}_${modelId}`;
         this.suspensionCache.set(cacheKey, until);
 
-        // 2. Persist to DB
         try {
             await APIStatus.findOneAndUpdate(
                 { key, model: modelId },
@@ -112,7 +90,6 @@ class ApiKeyManager {
         try {
             await APIKey.updateOne({ key }, { isActive: false, name: 'LEAKED - DISABLED' });
             console.error(`🚫 Key ...${key.slice(-4)} marked as LEAKED and disabled.`);
-            // Reload keys to update pool
             await this.loadKeys();
         } catch (e) {
             console.error('Failed to mark key leaked:', e);
@@ -120,7 +97,8 @@ class ApiKeyManager {
     }
 
     async execute(modelId, task) {
-        const MAX_RETRIES = this.pool.length > 0 ? this.pool.length : 1; // Try each key once
+        // Tăng số lần retry lên một chút nếu pool lớn
+        const MAX_RETRIES = this.pool.length > 0 ? this.pool.length + 2 : 3;
         let attempt = 0;
         let lastError = null;
 
@@ -129,20 +107,30 @@ class ApiKeyManager {
             try {
                 key = await this._getNextKey(modelId);
             } catch (e) {
-                // No keys available at all
                 console.warn(`⚠️ ${e.message}`);
-                throw e; // Stop trying
+                throw e; // Hết key thật rồi thì thua
             }
 
             try {
                 return await task(key);
             } catch (e) {
                 lastError = e;
+
+                // --- ERROR CLASSIFICATION ---
+                // Sửa lỗi logic check TypeError: 
+                // Trước đó code cũ bắt TypeError (do response.text() sai) và dừng luôn.
+                // Bây giờ code GeminiManager đã fix, nhưng ta vẫn nên log kỹ hơn.
+                if (e instanceof TypeError || e instanceof ReferenceError || e instanceof SyntaxError) {
+                    console.error(`❌ CODE BUG (NON-RETRYABLE): ${e.message}`, e.stack);
+                    throw e;
+                }
+
                 const statusCode = e.status || 500;
                 const statusText = e.error?.status || e.message || 'UNKNOWN';
                 const action = getActionForError(statusText, statusCode);
 
                 let waitMs = 60000;
+                // Parse retry delay from Google headers/body
                 const retryDelay = e?.error?.details?.find(d => d['@type']?.includes('RetryInfo'))?.retryDelay;
                 if (retryDelay) {
                     waitMs = parseFloat(retryDelay) * 1000;
@@ -151,18 +139,23 @@ class ApiKeyManager {
                 console.warn(`⚠️ Error ${statusCode} (${statusText}) on key ...${key.slice(-4)}. Action: ${action}`);
 
                 if (action === ACTIONS.ROTATE_KEY) {
-                    // Check specifically for 403 PERMISSION_DENIED (Leaked) vs 429
                     if (statusCode === 403 || statusText.includes('PERMISSION_DENIED')) {
                         await this.markLeaked(key);
                     } else {
                         await this.markRateLimited(key, modelId, waitMs);
                     }
+
+                    // FIX: Thêm delay nhỏ kể cả khi đổi key
+                    // Lý do: Nếu IP bị rate limit, đổi key ngay lập tức vẫn sẽ dính 429.
+                    await new Promise(r => setTimeout(r, 1000));
+
                 } else if (action === ACTIONS.RETRY) {
-                    // 503/500 errors, maybe short wait?
-                    await new Promise(r => setTimeout(r, 2000));
+                    // Exponential backoff đơn giản
+                    const backoff = 2000 * (attempt + 1);
+                    console.log(`Waiting ${backoff}ms before retry...`);
+                    await new Promise(r => setTimeout(r, backoff));
                 } else {
-                    // STOP or unknown fatal error
-                    throw e;
+                    throw e; // ABORT or UNKNOWN
                 }
 
                 attempt++;

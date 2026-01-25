@@ -88,54 +88,59 @@ class GeminiManager {
                     }
                 });
 
-                if (response.functionCalls && response.functionCalls.length > 0) {
-                    this.logger.info(`Function Calls detected: ${response.functionCalls.map(c => c.name).join(', ')}`);
+                // Check for Function Calls
+                const functionCalls = response.functionCalls ? response.functionCalls() : [];
+                // More reliable check using parts for history preservation
+                const responseParts = response.candidates?.[0]?.content?.parts || [];
+                const hasFunctionCall = responseParts.some(p => p.functionCall);
 
-                    // 1. Add Model's Function Call to Context
-                    const functionCallParts = response.functionCalls.map(call => ({
-                        functionCall: {
-                            name: call.name,
-                            args: call.args
-                        }
-                    }));
+                if (hasFunctionCall) {
+                    const callNames = responseParts.filter(p => p.functionCall).map(p => p.functionCall.name).join(', ');
+                    this.logger.info(`Function Calls detected: ${callNames}`);
 
+                    // 1. Add Model's Function Call to Context (EXACT parts from API to preserve thought_signature)
                     const modelCallTurn = {
                         role: 'model',
-                        parts: functionCallParts
+                        parts: responseParts // Use the exact parts returned by Gemini
                     };
                     contents.push(modelCallTurn);
                     newTurns.push(modelCallTurn);
 
                     // 2. Execute Functions & Build Responses
                     const functionResponseParts = [];
-                    for (const call of response.functionCalls) {
-                        const fn = this.functions[call.name];
-                        let apiResponse;
 
-                        if (fn) {
-                            try {
-                                const args = { ...call.args, ...context };
-                                const result = await fn(args);
-                                apiResponse = { result: result };
-                            } catch (error) {
-                                apiResponse = { error: error.message };
-                                console.error(`Error executing ${call.name}:`, error);
+                    for (const part of responseParts) {
+                        if (part.functionCall) {
+                            const call = part.functionCall;
+                            const fn = this.functions[call.name];
+                            let apiResponse;
+
+                            if (fn) {
+                                try {
+                                    const args = { ...call.args, ...context };
+                                    const result = await fn(args);
+                                    apiResponse = { result: result };
+                                } catch (error) {
+                                    apiResponse = { error: error.message };
+                                    console.error(`Error executing ${call.name}:`, error);
+                                }
+                            } else {
+                                apiResponse = { error: `Function ${call.name} not found` };
                             }
-                        } else {
-                            apiResponse = { error: `Function ${call.name} not found` };
+
+                            functionResponseParts.push({
+                                functionResponse: {
+                                    name: call.name,
+                                    response: apiResponse
+                                }
+                            });
                         }
-
-                        functionResponseParts.push({
-                            functionResponse: {
-                                name: call.name,
-                                response: apiResponse
-                            }
-                        });
                     }
 
                     // 3. Add Function Responses to Context
                     const functionResponseTurn = {
-                        role: 'user',
+                        role: 'user', // Gemini API expects function responses in 'user' role usually, or 'function' depending on SDK version. 
+                        // For @google/genai, usually 'user' with functionResponse parts is correct.
                         parts: functionResponseParts
                     };
                     contents.push(functionResponseTurn);
@@ -143,7 +148,7 @@ class GeminiManager {
 
                 } else {
                     // No function calls, just text
-                    finalResponseText = response.text;
+                    finalResponseText = response.text ? response.text() : response.candidates?.[0]?.content?.parts?.[0]?.text;
                     // Add Final Model Response to New Turns
                     newTurns.push({
                         role: 'model',

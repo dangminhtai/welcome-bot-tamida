@@ -228,8 +228,8 @@ export default {
                 const rowQueue = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('queue_prev').setEmoji('⬅️').setStyle(ButtonStyle.Secondary).setDisabled(currentQueuePage === 1),
                     new ButtonBuilder().setCustomId('queue_next').setEmoji('➡️').setStyle(ButtonStyle.Secondary).setDisabled(currentQueuePage === totalPages),
-                    new ButtonBuilder().setCustomId('queue_shuffle').setLabel('Trộn').setStyle(ButtonStyle.Secondary).setEmoji('�').setDisabled(queue.length < 2),
-                    new ButtonBuilder().setCustomId('queue_clear').setLabel('Xóa').setStyle(ButtonStyle.Danger).setEmoji('�').setDisabled(queue.length === 0)
+                    new ButtonBuilder().setCustomId('queue_shuffle').setLabel('Trộn').setStyle(ButtonStyle.Secondary).setEmoji('🔀').setDisabled(queue.length < 2),
+                    new ButtonBuilder().setCustomId('queue_clear').setLabel('Xóa').setStyle(ButtonStyle.Danger).setEmoji('💥').setDisabled(queue.length === 0)
                 );
                 const rowQueue2 = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('queue_add').setLabel('Thêm Nhạc').setStyle(ButtonStyle.Success).setEmoji('➕'),
@@ -455,7 +455,7 @@ export default {
                         const query = submitted.fields.getTextInputValue('q_url_input');
                         let player = poru.players.get(guildId);
 
-                        // Nếu chưa có player thì tạo (nếu user đang trong voice)
+                        // Nếu chưa có player thì tạo
                         if (!player) {
                             const voice = submitted.member.voice.channel;
                             if (!voice) return submitted.reply({ content: '❌ Bạn chưa vào voice!', ephemeral: true });
@@ -463,86 +463,94 @@ export default {
                             await applyAudioSettings(player);
                         }
 
-                        // Nếu là Priority (Hát Ngay)
+                        // --- CHUẨN BỊ BIẾN ĐỂ LƯU DB ---
+                        const tracksToAdd = [];
+                        let replyMsg = '';
+
+                        // A. XỬ LÝ HÁT NGAY (PRIORITY)
                         if (i.customId === 'queue_add_priority') {
-                            const success = await insertPriorityTrack(player, { url: query }, submitted.user);
-                            if (success) {
-                                if (!player.isPlaying && !player.isPaused) player.play();
-                                await submitted.reply({ content: `🚀 Đã chèn **${query}** vào đầu hàng chờ!`, ephemeral: true });
-                            } else {
-                                await submitted.reply({ content: '❌ Không tìm thấy bài hát!', ephemeral: true });
-                            }
-                        }
-                        // Nếu là Thêm thường (Queue Add)
-                        else {
                             const res = await poru.resolve({ query: query, source: 'ytsearch', requester: submitted.user });
-                            if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
-                                await submitted.reply({ content: '❌ Không tìm thấy bài hát!', ephemeral: true });
-                            } else if (res.loadType === 'PLAYLIST_LOADED') {
-                                for (const track of res.tracks) {
-                                    player.queue.add(track);
-                                }
-                                if (!player.isPlaying && !player.isPaused) player.play();
-                                await submitted.reply({ content: `✅ Đã thêm playlist **${res.playlistInfo.name}** (${res.tracks.length} bài) vào hàng chờ!`, ephemeral: true });
-                            } else {
+
+                            if (res.loadType === 'TRACK_LOADED' || res.loadType === 'SEARCH_RESULT') {
                                 const track = res.tracks[0];
-                                player.queue.add(track);
+                                track.info.requester = submitted.user;
+
+                                // 1. Chèn vào RAM (Đầu hàng chờ)
+                                player.queue.unshift(track);
+
+                                // 2. Chuẩn bị lưu DB
+                                tracksToAdd.push({
+                                    title: track.info.title, url: track.info.uri, author: track.info.author,
+                                    duration: track.info.length, requester: submitted.user.tag, addedAt: new Date()
+                                });
+
+                                // 3. Kích hoạt
                                 if (!player.isPlaying && !player.isPaused) player.play();
-                                await submitted.reply({ content: `✅ Đã thêm **${track.info.title}** vào hàng chờ!`, ephemeral: true });
+                                else player.skip(); // Priority là skip luôn bài đang hát
+
+                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}** vào đầu hàng chờ!`;
+                            } else {
+                                replyMsg = '❌ Không tìm thấy bài hát để ưu tiên!';
                             }
                         }
 
-                        // Refresh panel nếu đang ở Queue tab
+                        // B. XỬ LÝ THÊM THƯỜNG (QUEUE ADD)
+                        else {
+                            const res = await poru.resolve({ query: query, source: 'ytsearch', requester: submitted.user });
+
+                            if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
+                                replyMsg = '❌ Không tìm thấy bài hát!';
+                            }
+                            else if (res.loadType === 'PLAYLIST_LOADED') {
+                                for (const track of res.tracks) {
+                                    track.info.requester = submitted.user;
+                                    player.queue.add(track); // Add RAM
+                                    // Data DB
+                                    tracksToAdd.push({
+                                        title: track.info.title, url: track.info.uri, author: track.info.author,
+                                        duration: track.info.length, requester: submitted.user.tag, addedAt: new Date()
+                                    });
+                                }
+                                if (!player.isPlaying && !player.isPaused) player.play();
+                                replyMsg = `✅ Đã thêm playlist **${res.playlistInfo.name}** (${res.tracks.length} bài)!`;
+                            }
+                            else {
+                                const track = res.tracks[0];
+                                track.info.requester = submitted.user;
+                                player.queue.add(track); // Add RAM
+                                // Data DB
+                                tracksToAdd.push({
+                                    title: track.info.title, url: track.info.uri, author: track.info.author,
+                                    duration: track.info.length, requester: submitted.user.tag, addedAt: new Date()
+                                });
+
+                                if (!player.isPlaying && !player.isPaused) player.play();
+                                replyMsg = `✅ Đã thêm **${track.info.title}** vào hàng chờ!`;
+                            }
+                        }
+
+                        // --- C. ĐỒNG BỘ MONGODB (QUAN TRỌNG) ---
+                        if (tracksToAdd.length > 0) {
+                            const isPriority = i.customId === 'queue_add_priority';
+                            const updateQuery = isPriority
+                                ? { $push: { tracks: { $each: tracksToAdd, $position: 0 } } } // Chèn đầu
+                                : { $push: { tracks: { $each: tracksToAdd } } }; // Chèn cuối
+
+                            await GuildMusicQueue.updateOne(
+                                { guildId: guildId },
+                                { ...updateQuery, $set: { updatedAt: new Date() } },
+                                { upsert: true }
+                            ).catch(e => console.error('Lỗi lưu Queue từ Panel:', e));
+                        }
+
+                        await submitted.reply({ content: replyMsg, ephemeral: true });
+
+                        // Refresh panel
                         try { await msg.edit(await renderPanel('queue')); } catch (e) { }
                     }
                 }
             }
         });
-
-        /*
-            if (!modalInteraction.isModalSubmit()) return;
-            if (modalInteraction.customId === 'modal_pl_create') {
-                const name = modalInteraction.fields.getTextInputValue('pl_name_input');
-                await UserPlaylist.create({ userId: modalInteraction.user.id, name: name, tracks: [] });
-                await modalInteraction.reply({ content: `✅ Đã tạo playlist **${name}**!`, ephemeral: true });
-                // Refresh panel
-                try { await msg.edit(await renderPanel('playlist')); } catch (e) { }
-            }
-            if (modalInteraction.customId === 'modal_queue_add') {
-                const query = modalInteraction.fields.getTextInputValue('q_url_input');
-                let player = poru.players.get(guildId);
-
-                // Nếu chưa có player thì tạo (nếu user đang trong voice)
-                if (!player) {
-                    const voice = modalInteraction.member.voice.channel;
-                    if (!voice) return modalInteraction.reply({ content: '❌ Bạn chưa vào voice!', ephemeral: true });
-                    player = poru.createConnection({ guildId: guildId, voiceChannel: voice.id, textChannel: modalInteraction.channel.id, deaf: false });
-                    await applyAudioSettings(player);
-                }
-
-                const res = await poru.resolve({ query: query, source: 'ytsearch', requester: modalInteraction.user });
-                if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
-                    return modalInteraction.reply({ content: '❌ Không tìm thấy bài hát!', ephemeral: true });
-                }
-
-                if (res.loadType === 'PLAYLIST_LOADED') {
-                    for (const track of res.tracks) {
-                        player.queue.add(track);
-                    }
-                    if (!player.isPlaying && !player.isPaused) player.play();
-                    await modalInteraction.reply({ content: `✅ Đã thêm playlist **${res.playlistInfo.name}** (${res.tracks.length} bài) vào hàng chờ!`, ephemeral: true });
-                } else {
-                    const track = res.tracks[0];
-                    player.queue.add(track);
-                    if (!player.isPlaying && !player.isPaused) player.play();
-                    await modalInteraction.reply({ content: `✅ Đã thêm **${track.info.title}** vào hàng chờ!`, ephemeral: true });
-                }
-
-                // Refresh panel nếu đang ở Queue tab
-                try { await msg.edit(await renderPanel('queue')); } catch (e) { }
-            }
-        */
-
         collector.on('end', () => {
             interaction.editReply({ components: [] }).catch(() => { });
         });

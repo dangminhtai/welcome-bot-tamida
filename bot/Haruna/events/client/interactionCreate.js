@@ -62,6 +62,51 @@ export default (client) => {
                             if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
                         }
                     }
+
+                    else if (customId === 'music_modal_pl_add_query') {
+                        const query = interaction.fields.getTextInputValue('pl_query_input');
+                        // Resolve
+                        const isUrl = /^https?:\/\//.test(query);
+                        let res;
+                        try {
+                            res = await poru.resolve({ query: query, source: isUrl ? null : 'ytsearch', requester: interaction.user });
+                        } catch (e) {
+                            return interaction.editReply('❌ Lỗi kết nối tìm nhạc.');
+                        }
+
+                        if (!res || res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
+                            return interaction.editReply('❌ Không tìm thấy bài nào.');
+                        }
+
+                        // Get Playlist ID from State (state đã được tìm ở trên, nhưng cần load lại để chắc chắn)
+                        const state = await PanelState.findOne({ messageId: interaction.message?.id });
+                        if (!state || !state.selectedPlaylistId) {
+                            return interaction.editReply('❌ Không xác định được Playlist đang chọn. Hãy chọn lại!');
+                        }
+
+                        const pl = await UserPlaylist.findById(state.selectedPlaylistId);
+                        if (!pl) return interaction.editReply('❌ Playlist không tồn tại!');
+
+                        let count = 0;
+                        if (res.loadType === 'PLAYLIST_LOADED') {
+                            for (const t of res.tracks) {
+                                pl.tracks.push({ title: t.info.title, url: t.info.uri, author: t.info.author, duration: t.info.length });
+                            }
+                            count = res.tracks.length;
+                        } else {
+                            const t = res.tracks[0];
+                            pl.tracks.push({ title: t.info.title, url: t.info.uri, author: t.info.author, duration: t.info.length });
+                            count = 1;
+                        }
+                        await pl.save();
+                        await interaction.editReply(`✅ Đã thêm **${count}** bài vào Playlist **${pl.name}**!`);
+
+                        // Refresh UI
+                        if (state) {
+                            const newPayload = await renderMusicPanel(guildId, state, interaction.user.id);
+                            if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
+                        }
+                    }
                     return; // Done Modal
                 }
 
@@ -90,6 +135,12 @@ export default (client) => {
                     if (customId === 'music_queue_add_priority') {
                         const modal = new ModalBuilder().setCustomId('music_modal_queue_add_priority').setTitle('Hát Ngay');
                         const urlInput = new TextInputBuilder().setCustomId('q_url_input').setLabel("Link / Tên bài hát").setStyle(TextInputStyle.Short);
+                        modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
+                        return interaction.showModal(modal);
+                    }
+                    if (customId === 'music_pl_add_query') {
+                        const modal = new ModalBuilder().setCustomId('music_modal_pl_add_query').setTitle('Thêm vào Playlist');
+                        const urlInput = new TextInputBuilder().setCustomId('pl_query_input').setLabel("Link / Tên bài hát").setStyle(TextInputStyle.Short);
                         modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
                         return interaction.showModal(modal);
                     }

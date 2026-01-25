@@ -158,6 +158,7 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
                     const rowPlActions = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('music_pl_play').setLabel('▶️ Phát').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('music_pl_add_current').setLabel('➕ Thêm bài này').setStyle(ButtonStyle.Secondary).setDisabled(!player?.currentTrack),
+                        new ButtonBuilder().setCustomId('music_pl_add_query').setLabel('🔍 Thêm tên/link').setStyle(ButtonStyle.Primary),
                         new ButtonBuilder().setCustomId('music_pl_delete').setLabel('🗑️ Xóa PL').setStyle(ButtonStyle.Danger)
                     );
                     components.push(rowPlActions);

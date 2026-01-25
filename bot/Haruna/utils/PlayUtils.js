@@ -1,6 +1,7 @@
 import { poru } from './LavalinkManager.js';
 import { applyAudioSettings } from './AudioController.js';
 import GuildMusicQueue from '../models/GuildMusicQueue.js';
+import { ChannelType } from 'discord.js';
 
 /**
  * Common logic to handle Play/Priority requests
@@ -10,14 +11,27 @@ import GuildMusicQueue from '../models/GuildMusicQueue.js';
  */
 export async function executePlay(interaction, query, isPriority) {
     const member = interaction.member;
-    const voiceChannel = member.voice.channel;
+    let voiceChannel = member.voice.channel;
+    let player = poru.players.get(interaction.guild.id);
+
+    // --- LOGIC CHỌN KÊNH VOICE THÔNG MINH (REMOTE CONTROL) ---
+    if (!voiceChannel) {
+        if (player && player.isConnected) {
+            // Nếu Bot đang hát ở đâu đó -> Dùng luôn kênh đó
+            voiceChannel = interaction.guild.channels.cache.get(player.voiceChannel);
+        } else {
+            // Nếu Bot chưa hát -> Tự động tìm kênh Voice đầu tiên
+            voiceChannel = interaction.guild.channels.cache
+                .filter(c => c.type === ChannelType.GuildVoice && c.joinable && !c.full)
+                .first();
+        }
+    }
 
     if (!voiceChannel) {
-        return { success: false, message: '❌ Vui lòng vào voice trước!' };
+        return { success: false, message: '❌ Bot không tìm thấy kênh Voice nào để vào cả!' };
     }
 
     // 1. Get/Create Player
-    let player = poru.players.get(interaction.guild.id);
     if (!player) {
         player = poru.createConnection({
             guildId: interaction.guild.id,

@@ -21,32 +21,25 @@ export async function getHistory(userId, chatSession) {
 
         if (!chatSession || !chatSession.turns) return [];
 
-        // Slice last N turns
         const relevantTurns = chatSession.turns.slice(-limit);
 
-        // Map DB schema to Gemini API Content format
-        return relevantTurns.map(turn => {
+        // 1. Map & Filter Nulls
+        let history = relevantTurns.map(turn => {
             if (!turn || !turn.parts) return null;
 
             const parts = turn.parts.map(p => {
-                // FIX CRITICAL: Kiểm tra null trước khi truy cập thuộc tính
-                // Đây là nguyên nhân chính gây lỗi Crash App
                 if (!p) return null;
 
-                // Xử lý Mongoose Document (an toàn nếu p là object)
                 const partData = (typeof p.toObject === 'function') ? p.toObject() : p;
-
                 const part = {};
-                // Chỉ copy nếu có dữ liệu thực sự
+
                 if (partData.text) part.text = partData.text;
                 if (partData.functionCall) part.functionCall = partData.functionCall;
                 if (partData.functionResponse) part.functionResponse = partData.functionResponse;
 
-                // Nếu part rỗng (không có text/call/response), loại bỏ luôn
                 if (Object.keys(part).length === 0) return null;
-
                 return part;
-            }).filter(p => p !== null); // <--- Lọc bỏ null parts
+            }).filter(p => p !== null);
 
             if (parts.length === 0) return null;
 
@@ -54,16 +47,32 @@ export async function getHistory(userId, chatSession) {
                 role: turn.role,
                 parts: parts
             };
-        }).filter(t => t !== null); // <--- Lọc bỏ null turns
+        }).filter(t => t !== null);
+
+        // 2. SANITIZE: Xử lý turn cuối bị lỗi (Lỗi 400 Function Call)
+        // Nếu turn cuối cùng là 'model' và chứa functionCall, có nghĩa là session trước 
+        // bot bị crash chưa kịp lưu functionResponse. 
+        // Ta PHẢI xóa nó đi, nếu không khi append user message mới vào sẽ vi phạm quy tắc:
+        // Model(Call) -> User(Text) ==> INVALID_ARGUMENT
+        if (history.length > 0) {
+            const lastTurn = history[history.length - 1];
+            const hasFunctionCall = lastTurn.parts.some(p => p.functionCall);
+
+            if (lastTurn.role === 'model' && hasFunctionCall) {
+                console.warn('⚠️ Found dangling FunctionCall at end of history. Removing to fix Error 400.');
+                history.pop();
+            }
+        }
+
+        return history;
     } catch (error) {
         console.error('Error in getHistory (Fixed):', error);
-        return []; // Trả về mảng rỗng thay vì làm crash bot
+        return [];
     }
 }
 
 export async function saveInteraction(chatSession, newContents) {
     try {
-        // newContents: Array of { role, parts }
         for (const content of newContents) {
             const dbParts = content.parts.map(p => {
                 const part = {};
@@ -71,7 +80,6 @@ export async function saveInteraction(chatSession, newContents) {
                 if (p.functionCall) part.functionCall = p.functionCall;
                 if (p.functionResponse) part.functionResponse = p.functionResponse;
 
-                // Fallback: Nếu không phải object chuẩn mà là string, coi là text
                 if (!part.text && !part.functionCall && !part.functionResponse && typeof p === 'string') {
                     part.text = p;
                 }

@@ -15,15 +15,7 @@ class GeminiManager {
         };
         this.modelId = 'gemini-3-flash-preview';
 
-        this.systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
-- Tính cách: Vui vẻ, thân thiện, dùng nhiều emoji (🎵, ✨, 🎧, UwU).
-- Nhiệm vụ: Giúp người dùng nghe nhạc, quản lý radio và giải đáp thắc mắc.
-- Ghi nhớ user: Bạn có khả năng nhớ tên và sở thích của user từ lịch sử chat.
-- Nguyên tắc:
-  1. Trả lời ngắn gọn, đi vào trọng tâm.
-  2. Nếu người dùng muốn nghe nhạc -> gọi tool 'play_music'.
-  3. Nếu muốn mở bảng điều khiển -> gọi tool 'show_music_panel'.
-  4. Luôn kiểm tra tool phù hợp trước khi trả lời.`;
+
 
         this.tools = [{ functionDeclarations: musicTools }];
 
@@ -56,6 +48,18 @@ class GeminiManager {
         contents.push(userTurn);
         const newTurns = [userTurn];
 
+        // Create System Prompt with Dynamic User Context
+        const systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
+- Bạn đang trò chuyện với: **${message.member?.displayName || message.author.username || 'User giấu tên'}** (ID: ${userId})
+- Tính cách: Vui vẻ, thân thiện, dùng nhiều emoji (🎵, ✨, 🎧, UwU).
+- Nhiệm vụ: Giúp người dùng nghe nhạc, quản lý radio và giải đáp thắc mắc.
+- Ghi nhớ user: Bạn có khả năng nhớ tên và sở thích của user từ lịch sử chat.
+- Nguyên tắc:
+  1. Trả lời ngắn gọn, đi vào trọng tâm.
+  2. Nếu người dùng muốn nghe nhạc -> gọi tool 'play_music'.
+  3. Nếu muốn mở bảng điều khiển -> gọi tool 'show_music_panel'.
+  4. Luôn kiểm tra tool phù hợp trước khi trả lời.`;
+
         return await ApiKeyManager.execute(this.modelId, async (key) => {
             const ai = new GoogleGenAI({ apiKey: key });
 
@@ -68,7 +72,7 @@ class GeminiManager {
                     contents: contents,
                     config: {
                         tools: this.tools,
-                        systemInstruction: this.systemInstruction,
+                        systemInstruction: systemInstruction,
                         temperature: 1.5,
                         topK: 40,
                         topP: 0.95

@@ -199,7 +199,6 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
             new ButtonBuilder().setCustomId('music_queue_clear').setLabel('Xóa').setStyle(ButtonStyle.Danger).setEmoji('💥').setDisabled(queue.length === 0)
         );
         const rowQueue2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('music_queue_add').setLabel('Thêm Nhạc').setStyle(ButtonStyle.Success).setEmoji('➕'),
             new ButtonBuilder().setCustomId('music_queue_add_priority').setLabel('Hát Ngay').setStyle(ButtonStyle.Primary).setEmoji('🚀'),
             new ButtonBuilder().setCustomId('music_nav_settings').setLabel('Settings').setEmoji('🎛️').setStyle(currentTab === 'settings' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(currentTab === 'settings')
         );

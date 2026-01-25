@@ -105,6 +105,18 @@ export function initLavalink(discordClient) {
         // Nếu không có, nó sẽ tự kích hoạt queueEnd
     });
 
+    poru.on('trackStuck', async (player, track, threshold) => {
+        console.warn(`⚠️ Track bị kẹt [${track.info.title}] quá ${threshold}ms -> Đang Auto Skip...`);
+
+        const channel = await getSafeChannel(player.textChannel);
+        if (channel) {
+            channel.send(`⚠️ Bài hát **${track.info.title}** bị kẹt (mạng lag). Bot tự động chuyển bài tiếp theo!`).catch(() => { });
+        }
+
+        // Lệnh này sẽ dừng bài đang kẹt -> Kích hoạt sự kiện queueEnd/trackStart tiếp theo
+        player.stop();
+    });
+
     // --- SỰ KIỆN QUEUE END (HẾT NHẠC) ---
     poru.on('queueEnd', async (player) => {
         const channel = await getSafeChannel(player.textChannel);

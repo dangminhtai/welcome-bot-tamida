@@ -11,6 +11,7 @@ import { applyAudioSettings } from '../../utils/AudioController.js';
 import GuildMusicQueue from '../../models/GuildMusicQueue.js';
 import UserPlaylist from '../../models/UserPlaylist.js';
 import RadioSong from '../../models/RadioSong.js';
+import { executePlay } from '../../utils/PlayUtils.js';
 import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
 
 export default (client) => {
@@ -46,76 +47,13 @@ export default (client) => {
                         }
                     }
 
-                    else if (customId === 'music_modal_queue_add' || customId === 'music_modal_queue_add_priority') {
+                    else if (customId === 'music_modal_queue_add_priority') {
                         const query = interaction.fields.getTextInputValue('q_url_input');
-                        const isPriority = customId === 'music_modal_queue_add_priority';
+                        // Gọi hàm dùng chung (isPriority = true)
+                        const result = await executePlay(interaction, query, true);
 
-                        let player = poru.players.get(guildId);
-                        if (!player) {
-                            const voice = interaction.member.voice.channel;
-                            if (!voice) return interaction.editReply('❌ Bạn chưa vào voice!');
-                            player = poru.createConnection({ guildId: guildId, voiceChannel: voice.id, textChannel: interaction.channel.id, deaf: false });
-                            await applyAudioSettings(player);
-                        }
-
-                        const tracksToAdd = [];
-                        let replyMsg = '';
-                        const isUrl = /^https?:\/\//.test(query);
-                        const res = await poru.resolve({ query: query, source: isUrl ? null : 'ytsearch', requester: interaction.user });
-
-                        if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
-                            console.log(`[Music Panel] Load Failed: ${query} | Type: ${res.loadType} | Exception:`, res.exception);
-                            return interaction.editReply(`❌ Không tìm thấy bài hát! (Lỗi: ${res.loadType})`);
-                        }
-
-                        if (isPriority) {
-                            if (res.loadType === 'TRACK_LOADED' || res.loadType === 'SEARCH_RESULT') {
-                                const track = res.tracks[0];
-                                track.info.requester = interaction.user;
-                                player.queue.unshift(track);
-                                tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
-                                if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
-                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}**!`;
-                            } else if (res.loadType === 'PLAYLIST_LOADED') {
-                                // Logic giống hệt /play: Chèn CẢ PLAYLIST lên đầu
-                                // Duyệt ngược để unshift giữ đúng thứ tự cho cả Queue và array DB
-                                for (let i = res.tracks.length - 1; i >= 0; i--) {
-                                    const t = res.tracks[i];
-                                    t.info.requester = interaction.user;
-                                    player.queue.unshift(t);
-                                    // Unshift vào mảng local để khi lưu DB nó sẽ là [Bài 1, Bài 2, ...]
-                                    tracksToAdd.unshift({ title: t.info.title, url: t.info.uri, author: t.info.author, duration: t.info.length, requester: interaction.user.tag, addedAt: new Date() });
-                                }
-                                if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
-                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn Playlist **${res.playlistInfo.name}** (${res.tracks.length} bài) lên đầu!`;
-                            }
-                            else { replyMsg = '❌ Không tìm thấy bài hát ưu tiên!'; }
-                        } else {
-                            if (res.loadType === 'PLAYLIST_LOADED') {
-                                for (const track of res.tracks) {
-                                    track.info.requester = interaction.user;
-                                    player.queue.add(track);
-                                    tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
-                                }
-                                if (!player.isPlaying && !player.isPaused) player.play();
-                                replyMsg = `✅ Đã thêm playlist **${res.playlistInfo.name}**!`;
-                            } else if (res.loadType === 'TRACK_LOADED' || res.loadType === 'SEARCH_RESULT') {
-                                const track = res.tracks[0];
-                                track.info.requester = interaction.user;
-                                player.queue.add(track);
-                                tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
-                                if (!player.isPlaying && !player.isPaused) player.play();
-                                replyMsg = `✅ Đã thêm **${track.info.title}**!`;
-                            } else { replyMsg = '❌ Không tìm thấy bài hát!'; }
-                        }
-
-                        // Sync DB
-                        if (tracksToAdd.length > 0) {
-                            const updateQuery = isPriority ? { $push: { tracks: { $each: tracksToAdd, $position: 0 } } } : { $push: { tracks: { $each: tracksToAdd } } };
-                            await GuildMusicQueue.updateOne({ guildId: guildId }, { ...updateQuery, $set: { updatedAt: new Date() } }, { upsert: true });
-                        }
-
-                        await interaction.editReply(replyMsg);
+                        // Reply kết quả
+                        await interaction.editReply(result.message);
 
                         // Refresh UI
                         const state = await PanelState.findOne({ messageId: interaction.message?.id });
@@ -149,9 +87,8 @@ export default (client) => {
                         modal.addComponents(new ActionRowBuilder().addComponents(nameInput));
                         return interaction.showModal(modal);
                     }
-                    if (customId === 'music_queue_add' || customId === 'music_queue_add_priority') {
-                        const isPriority = customId === 'music_queue_add_priority';
-                        const modal = new ModalBuilder().setCustomId(isPriority ? 'music_modal_queue_add_priority' : 'music_modal_queue_add').setTitle(isPriority ? 'Hát Ngay' : 'Thêm Nhạc');
+                    if (customId === 'music_queue_add_priority') {
+                        const modal = new ModalBuilder().setCustomId('music_modal_queue_add_priority').setTitle('Hát Ngay');
                         const urlInput = new TextInputBuilder().setCustomId('q_url_input').setLabel("Link / Tên bài hát").setStyle(TextInputStyle.Short);
                         modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
                         return interaction.showModal(modal);

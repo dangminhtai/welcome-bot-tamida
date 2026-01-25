@@ -1,9 +1,8 @@
 import { Events } from 'discord.js';
 import GeminiManager from '../../class/GeminiManager.js';
 
-export default {
-    name: Events.MessageCreate,
-    async execute(message) {
+export default (client) => {
+    client.on(Events.MessageCreate, async (message) => {
         // 1. Validate
         if (message.author.bot) return;
         if (message.channel.name !== 'dolia') return; // Chỉ chat trong kênh 'dolia'
@@ -30,5 +29,5 @@ export default {
             console.error('Gemini Chat Error:', error);
             await message.reply('❌ Dolia đang bị đau đầu, thử lại sau nhé!');
         }
-    },
+    });
 };

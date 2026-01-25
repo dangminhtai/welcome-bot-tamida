@@ -11,8 +11,8 @@ import sodium from 'libsodium-wrappers';
 
 // Event imports
 import onReady from './events/client/onReady.js';
-
 import interactionCreate from './events/client/interactionCreate.js';
+import messageCreate from './events/client/messageCreate.js';
 
 const client = new Client({
     intents: [
@@ -29,6 +29,7 @@ const __dirname = path.dirname(__filename)
 client.commands = new Collection()
 onReady(client);
 interactionCreate(client);
+messageCreate(client);
 import express from 'express';
 
 const app = express();

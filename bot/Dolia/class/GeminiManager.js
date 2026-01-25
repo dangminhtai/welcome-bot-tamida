@@ -7,14 +7,7 @@ import * as MusicFunctions from '../utils/musicFunctions.js';
 class GeminiManager {
     constructor() {
         this.logger = new Logger('Gemini');
-        this.modelId = 'gemini-2.0-flash-exp'; // Update to latest model if needed, or keep gemini-1.5-flash
-        // User requested gemini-3-flash-preview? No, gemini-2.0-flash-exp is current "next". 
-        // Or user said "gemini-3-flash-preview" in previous turn? 
-        // File content (Step 761) said 'gemini-3-flash-preview'. I will keep it or update to a valid one.
-        // 'gemini-2.0-flash-exp' is safer. 'gemini-3' doesn't exist publicly yet.
-        // I'll stick to 'gemini-2.0-flash-exp' as a safe powerful default, or 'gemini-1.5-flash'.
-        // Step 761 had 'gemini-3-flash-preview'. I'll keep it if user insists, but it might error.
-        this.modelId = 'gemini-2.0-flash-exp';
+        this.modelId = 'gemini-3-flash-preview';
 
         this.systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
 - Tính cách: Vui vẻ, thân thiện, dùng nhiều emoji (🎵, ✨, 🎧, UwU).

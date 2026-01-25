@@ -21,15 +21,15 @@ export async function getHistory(userId, chatSession) {
 
         if (!chatSession || !chatSession.turns) return [];
 
-        const relevantTurns = chatSession.turns.slice(-limit);
+        // 1. Get raw turns
+        let relevantTurns = chatSession.turns.slice(-limit);
 
-        // 1. Map & Filter Nulls
+        // 2. Map & Filter Nulls to clean objects
         let history = relevantTurns.map(turn => {
             if (!turn || !turn.parts) return null;
 
             const parts = turn.parts.map(p => {
                 if (!p) return null;
-
                 const partData = (typeof p.toObject === 'function') ? p.toObject() : p;
                 const part = {};
 
@@ -49,22 +49,88 @@ export async function getHistory(userId, chatSession) {
             };
         }).filter(t => t !== null);
 
-        // 2. SANITIZE: Xử lý turn cuối bị lỗi (Lỗi 400 Function Call)
-        // Nếu turn cuối cùng là 'model' và chứa functionCall, có nghĩa là session trước 
-        // bot bị crash chưa kịp lưu functionResponse. 
-        // Ta PHẢI xóa nó đi, nếu không khi append user message mới vào sẽ vi phạm quy tắc:
-        // Model(Call) -> User(Text) ==> INVALID_ARGUMENT
-        if (history.length > 0) {
-            const lastTurn = history[history.length - 1];
+
+        // 3. STRICT SANITIZATION (Fix Error 400)
+        // Rule 1: FunctionResponse must be immediately preceded by FunctionCall.
+        // Rule 2: FunctionCall must be immediately followed by FunctionResponse (unless it's the very last turn, which we handle by popping).
+
+        const sanitizedHistory = [];
+
+        for (let i = 0; i < history.length; i++) {
+            const turn = history[i];
+            const isFunctionResponse = turn.parts.some(p => p.functionResponse);
+            const isFunctionCall = turn.parts.some(p => p.functionCall);
+
+            if (isFunctionResponse) {
+                // Check previous
+                if (sanitizedHistory.length === 0) {
+                    // Orphan response at start (due to slice) -> Skip
+                    continue;
+                }
+                const prevTurn = sanitizedHistory[sanitizedHistory.length - 1];
+                const prevHasCall = prevTurn.parts.some(p => p.functionCall);
+
+                if (prevTurn.role === 'model' && prevHasCall) {
+                    // Valid pair -> Add
+                    sanitizedHistory.push(turn);
+                } else {
+                    // Orphan response -> Skip
+                    continue;
+                }
+            }
+            else if (isFunctionCall) {
+                // We add it for now, check if it's dangling later
+                sanitizedHistory.push(turn);
+            }
+            else {
+                // Normal text -> Add
+                sanitizedHistory.push(turn);
+            }
+        }
+
+        // Rule 2: Remove dangling FunctionCall at the VERY END
+        // Because the next turn (current user message) will be text, which violates Call->Response rule.
+        if (sanitizedHistory.length > 0) {
+            const lastTurn = sanitizedHistory[sanitizedHistory.length - 1];
             const hasFunctionCall = lastTurn.parts.some(p => p.functionCall);
 
             if (lastTurn.role === 'model' && hasFunctionCall) {
                 console.warn('⚠️ Found dangling FunctionCall at end of history. Removing to fix Error 400.');
-                history.pop();
+                sanitizedHistory.pop();
             }
         }
 
-        return history;
+        // Rule 3: Remove dangling FunctionCall in middle (e.g. Call -> UserText)
+        // This is rarer but possible if we skipped a response in step 3 loop?
+        // Actually step 3 loop handles "Response without Call".
+        // Now we need "Call without Response".
+        // Iterate again? Or optimize above.
+        // Let's do a quick pass to filter out Calls that aren't followed by Response.
+
+        const finalHistory = [];
+        for (let i = 0; i < sanitizedHistory.length; i++) {
+            const turn = sanitizedHistory[i];
+            const isFunctionCall = turn.parts.some(p => p.functionCall);
+
+            if (isFunctionCall) {
+                // Look ahead
+                const nextTurn = sanitizedHistory[i + 1];
+                const nextHasResponse = nextTurn?.parts?.some(p => p.functionResponse);
+
+                if (nextHasResponse) {
+                    // Valid sequence
+                    finalHistory.push(turn);
+                } else {
+                    // Dangling Call (followed by text or end of list) -> Remove
+                    // (Note: End of list case is already handled, but this covers it too)
+                    continue;
+                }
+            } else {
+                finalHistory.push(turn);
+            }
+        }
+
+        return finalHistory;
     } catch (error) {
         console.error('Error in getHistory (Fixed):', error);
         return [];

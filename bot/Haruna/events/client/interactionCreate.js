@@ -1,10 +1,16 @@
-//events/client/interactionCreate.js
 import { Events, MessageFlags } from "discord.js";
 import { decorateTree, createGameUI, checkGameFinished } from '../../utils/christmasGameUtils.js';
 import { TREE_CONFIG } from '../../config/christmasTreeConfig.js';
+import { getConfig } from '../../utils/childConfigUtils.js';
 
 export default (client) => {
     client.on(Events.InteractionCreate, async interaction => {
+        // --- 0. CHECK ENVIRONMENT LOCK (STOP DEPLOY) ---
+        // Nếu đang ở Linux (Deploy) và có cờ chặn -> return ngay để bot Local (Windows) xử lý
+        if (process.platform === 'linux') {
+            const stopDeploy = await getConfig('stop_deploy');
+            if (stopDeploy) return;
+        }
 
         // --- 1. XỬ LÝ GAME CÂY THÔNG (BUTTON & MENU) ---
         if (interaction.customId?.startsWith('tree_') && (interaction.isButton() || interaction.isStringSelectMenu())) {
@@ -122,7 +128,7 @@ export default (client) => {
             if (!command) {
                 try {
                     await interaction.reply({ content: 'Lệnh không tìm thấy.', flags: MessageFlags.Ephemeral });
-                } catch (_) {}
+                } catch (_) { }
                 return;
             }
 
@@ -132,11 +138,11 @@ export default (client) => {
                 console.error("Command Execution Error:", error);
                 try {
                     if (interaction.deferred) {
-                        await interaction.editReply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!' }).catch(() => {});
+                        await interaction.editReply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!' }).catch(() => { });
                     } else if (!interaction.replied) {
-                        await interaction.reply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        await interaction.reply({ content: 'Có lỗi xảy ra khi thực hiện lệnh này!', flags: MessageFlags.Ephemeral }).catch(() => { });
                     }
-                } catch (_) {}
+                } catch (_) { }
             }
         }
     });

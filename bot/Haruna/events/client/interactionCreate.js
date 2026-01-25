@@ -77,12 +77,17 @@ export default (client) => {
                                 if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
                                 replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}**!`;
                             } else if (res.loadType === 'PLAYLIST_LOADED') {
-                                const track = res.tracks[0];
-                                track.info.requester = interaction.user;
-                                player.queue.unshift(track);
-                                tracksToAdd.push({ title: track.info.title, url: track.info.uri, author: track.info.author, duration: track.info.length, requester: interaction.user.tag, addedAt: new Date() });
+                                // Logic giống hệt /play: Chèn CẢ PLAYLIST lên đầu
+                                // Duyệt ngược để unshift giữ đúng thứ tự cho cả Queue và array DB
+                                for (let i = res.tracks.length - 1; i >= 0; i--) {
+                                    const t = res.tracks[i];
+                                    t.info.requester = interaction.user;
+                                    player.queue.unshift(t);
+                                    // Unshift vào mảng local để khi lưu DB nó sẽ là [Bài 1, Bài 2, ...]
+                                    tracksToAdd.unshift({ title: t.info.title, url: t.info.uri, author: t.info.author, duration: t.info.length, requester: interaction.user.tag, addedAt: new Date() });
+                                }
                                 if (!player.isPlaying && !player.isPaused) player.play(); else player.skip();
-                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn **${track.info.title}** (từ Playlist)!`;
+                                replyMsg = `🚀 **[ƯU TIÊN]** Đã chèn Playlist **${res.playlistInfo.name}** (${res.tracks.length} bài) lên đầu!`;
                             }
                             else { replyMsg = '❌ Không tìm thấy bài hát ưu tiên!'; }
                         } else {

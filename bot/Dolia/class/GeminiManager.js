@@ -4,6 +4,7 @@ import Logger from './Logger.js';
 import { musicTools } from '../schema/musicTools.js';
 import * as MusicFunctions from '../utils/musicFunctions.js';
 import * as ChatHelper from '../helpers/chatHelper.js';
+import { loadSystemPrompt } from '../helpers/promptHelper.js';
 
 class GeminiManager {
     constructor() {
@@ -14,8 +15,6 @@ class GeminiManager {
             log: (msg) => Logger.info(`[Gemini] ${msg}`)
         };
         this.modelId = 'gemini-3-flash-preview';
-
-
 
         this.tools = [{ functionDeclarations: musicTools }];
 
@@ -48,17 +47,19 @@ class GeminiManager {
         contents.push(userTurn);
         const newTurns = [userTurn];
 
-        // Create System Prompt with Dynamic User Context
-        const systemInstruction = `Bạn là Dolia, một trợ lý ảo dễ thương, năng động trên Discord.
-- Bạn đang trò chuyện với: **${message.member?.displayName || message.author.username || 'User giấu tên'}** (ID: ${userId})
-- Tính cách: Vui vẻ, thân thiện, dùng nhiều emoji (🎵, ✨, 🎧, UwU).
-- Nhiệm vụ: Giúp người dùng nghe nhạc, quản lý radio và giải đáp thắc mắc.
-- Ghi nhớ user: Bạn có khả năng nhớ tên và sở thích của user từ lịch sử chat.
-- Nguyên tắc:
-  1. Trả lời ngắn gọn, đi vào trọng tâm.
-  2. Nếu người dùng muốn nghe nhạc -> gọi tool 'play_music'.
-  3. Nếu muốn mở bảng điều khiển -> gọi tool 'show_music_panel'.
-  4. Luôn kiểm tra tool phù hợp trước khi trả lời.`;
+        // Prepare replacements
+        const replacements = {
+            '{{user}}': message.member?.displayName || message.author.globalName || message.author.username || 'User',
+            '{{user_name}}': message.member?.displayName || message.author.username || 'User',
+            '{{user_id}}': userId,
+            '{{server_name}}': message.guild?.name || 'Direct Message (DM)',
+            '{{guild_name}}': message.guild?.name || 'DM',
+            '{{channel_name}}': message.channel.name || 'Private Chat',
+            '{{time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+            '{{current_time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+            '{{bot_name}}': message.client.user.username || 'Dolia'
+        };
+        const systemInstruction = loadSystemPrompt(replacements);
 
         return await ApiKeyManager.execute(this.modelId, async (key) => {
             const ai = new GoogleGenAI({ apiKey: key });

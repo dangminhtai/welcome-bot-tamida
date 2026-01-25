@@ -72,23 +72,32 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
             .addFields(
                 { name: '🔊 Volume', value: `${setting.volume}%`, inline: true },
                 { name: '⏩ Speed', value: `${setting.speed.toFixed(1)}x`, inline: true },
+                { name: '🗣️ Pitch', value: `${setting.pitch?.toFixed(1) || '1.0'}x`, inline: true },
                 { name: '🐿️ Nightcore', value: setting.nightcore ? '✅ Bật' : '❌ Tắt', inline: true },
                 { name: '🥁 Bassboost', value: setting.bassboost ? '✅ Bật' : '❌ Tắt', inline: true }
             );
 
+        // Hàng 1: Volume
         const rowVol = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('music_set_vol_down').setLabel('Vol -10').setStyle(ButtonStyle.Secondary).setEmoji('🔉'),
             new ButtonBuilder().setCustomId('music_set_vol_up').setLabel('Vol +10').setStyle(ButtonStyle.Secondary).setEmoji('🔊'),
             new ButtonBuilder().setCustomId('music_set_reset').setLabel('Reset All').setStyle(ButtonStyle.Danger).setEmoji('🧹')
         );
 
-        const rowEffect = new ActionRowBuilder().addComponents(
+        // Hàng 2: Speed (giống lệnh)
+        const rowSpeed = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('music_set_speed_down').setLabel('Speed -').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('music_set_speed_up').setLabel('Speed +').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('music_set_speed_reset').setLabel('Speed Chuẩn').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('music_set_speed_up').setLabel('Speed +').setStyle(ButtonStyle.Primary)
+        );
+
+        // Hàng 3: Effect (giống lệnh)
+        const rowEffect = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('music_set_nightcore').setLabel('Nightcore').setStyle(setting.nightcore ? ButtonStyle.Success : ButtonStyle.Secondary).setEmoji('🐿️'),
             new ButtonBuilder().setCustomId('music_set_bass').setLabel('Bassboost').setStyle(setting.bassboost ? ButtonStyle.Success : ButtonStyle.Secondary).setEmoji('🥁')
         );
-        components.push(rowVol, rowEffect);
+
+        components.push(rowVol, rowSpeed, rowEffect);
     }
 
     // ==================== TAB: RADIO ====================

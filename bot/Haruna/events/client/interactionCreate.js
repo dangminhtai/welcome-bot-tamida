@@ -176,6 +176,7 @@ export default (client) => {
                         if (customId === 'music_set_vol_down') { setting.volume = Math.max(setting.volume - 10, 0); changed = true; }
                         if (customId === 'music_set_speed_up') { setting.speed = parseFloat((setting.speed + 0.1).toFixed(1)); changed = true; }
                         if (customId === 'music_set_speed_down') { setting.speed = Math.max(parseFloat((setting.speed - 0.1).toFixed(1)), 0.5); changed = true; }
+                        if (customId === 'music_set_speed_reset') { setting.speed = 1.0; changed = true; }
                         if (customId === 'music_set_nightcore') {
                             setting.nightcore = !setting.nightcore;
                             setting.speed = setting.nightcore ? 1.2 : 1.0;
@@ -238,27 +239,59 @@ export default (client) => {
                             const pl = await UserPlaylist.findById(state.selectedPlaylistId);
                             if (pl && pl.tracks.length > 0) {
                                 let targetPlayer = player;
+
+                                // Logic tạo Player thông minh (Remote Control)
                                 if (!targetPlayer) {
-                                    const voice = interaction.member.voice.channel;
+                                    let voice = interaction.member.voice.channel;
+                                    // Remote control: Nếu user ko trong voice, tìm voice đầu tiên
+                                    if (!voice) {
+                                        // Nếu có player cũ (đang dis) thì dùng lại, ko thì tìm kênh mới
+                                        if (poru.players.get(interaction.guild.id)) {
+                                            voice = interaction.guild.channels.cache.get(poru.players.get(interaction.guild.id).voiceChannel);
+                                        }
+                                        if (!voice) {
+                                            voice = interaction.guild.channels.cache.filter(c => c.type === 2 && c.joinable && !c.full).first(); // 2 = GuildVoice
+                                        }
+                                    }
+
                                     if (voice) {
                                         targetPlayer = poru.createConnection({ guildId: interaction.guild.id, voiceChannel: voice.id, textChannel: interaction.channel.id, deaf: false });
                                         await applyAudioSettings(targetPlayer);
+                                    } else {
+                                        return interaction.followUp({ content: '❌ Không tìm thấy kênh Voice để phát nhạc!', ephemeral: true });
                                     }
                                 }
+
                                 if (targetPlayer) {
                                     targetPlayer.queue.clear();
                                     targetPlayer.stop();
                                     const tracksToAdd = [];
+
+                                    // Resolve từng bài (có thể chậm nếu list dài, nhưng an toàn)
+                                    // Tối ưu: resolve 1 bài đầu để phát ngay, các bài sau resolve ngầm?
+                                    // Hiện tại cứ giữ logic cũ nhưng thêm try/catch
                                     for (const t of pl.tracks) {
-                                        const res = await poru.resolve({ query: t.url, source: 'ytsearch', requester: interaction.user });
-                                        if (res.tracks.length > 0) {
-                                            targetPlayer.queue.add(res.tracks[0]);
-                                            tracksToAdd.push({ title: t.title, url: t.url, author: t.author, duration: t.duration, requester: interaction.user.tag, addedAt: new Date() });
-                                        }
+                                        try {
+                                            const res = await poru.resolve({ query: t.url, source: 'ytsearch', requester: interaction.user });
+                                            if (res.tracks.length > 0) {
+                                                const track = res.tracks[0];
+                                                track.info.requester = interaction.user; // Set requester
+                                                targetPlayer.queue.add(track);
+                                                tracksToAdd.push({ title: t.title, url: t.url, author: t.author, duration: t.duration, requester: interaction.user.tag, addedAt: new Date() });
+                                            }
+                                        } catch (e) { console.error("Error resolving playlist track:", e); }
                                     }
-                                    targetPlayer.play();
-                                    await GuildMusicQueue.updateOne({ guildId: interaction.guild.id }, { $set: { tracks: tracksToAdd, updatedAt: new Date() } }, { upsert: true });
+
+                                    if (targetPlayer.queue.length > 0) {
+                                        targetPlayer.play();
+                                        await GuildMusicQueue.updateOne({ guildId: interaction.guild.id }, { $set: { tracks: tracksToAdd, updatedAt: new Date() } }, { upsert: true });
+                                        await interaction.followUp({ content: `▶️ Đang phát Playlist: **${pl.name}**`, ephemeral: true });
+                                    } else {
+                                        await interaction.followUp({ content: '❌ Không tải được bài hát nào trong Playlist này.', ephemeral: true });
+                                    }
                                 }
+                            } else {
+                                await interaction.followUp({ content: '❌ Playlist trống!', ephemeral: true });
                             }
                         }
                     }

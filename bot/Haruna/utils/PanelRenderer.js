@@ -47,7 +47,7 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
                 );
 
             const rowControls = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('music_btn_pause').setEmoji(player.isPaused ? '▶️' : 'II').setStyle(player.isPaused ? ButtonStyle.Success : ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('music_btn_pause').setEmoji(player.isPaused ? '▶️' : '⏸️').setStyle(player.isPaused ? ButtonStyle.Success : ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('music_btn_skip').setEmoji('⏭️').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('music_btn_loop').setEmoji(player.loop === 'NONE' ? '🔁' : '🔂').setStyle(player.loop === 'NONE' ? ButtonStyle.Secondary : ButtonStyle.Success),
                 new ButtonBuilder().setCustomId('music_btn_shuffle').setEmoji('🔀').setStyle(ButtonStyle.Secondary),

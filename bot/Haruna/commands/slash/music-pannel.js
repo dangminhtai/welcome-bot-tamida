@@ -232,7 +232,8 @@ export default {
                 );
                 const rowQueue2 = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('queue_add').setLabel('Thêm Nhạc').setStyle(ButtonStyle.Success).setEmoji('➕'),
-                    new ButtonBuilder().setCustomId('queue_add_priority').setLabel('Hát Ngay').setStyle(ButtonStyle.Primary).setEmoji('🚀')
+                    new ButtonBuilder().setCustomId('queue_add_priority').setLabel('Hát Ngay').setStyle(ButtonStyle.Primary).setEmoji('🚀'),
+                    new ButtonBuilder().setCustomId('nav_settings').setLabel('Settings').setEmoji('🎛️').setStyle(tab === 'settings' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(tab === 'settings')
                 );
                 components.push(rowQueue, rowQueue2);
             }
@@ -243,7 +244,6 @@ export default {
                 new ButtonBuilder().setCustomId('nav_queue').setLabel('Queue').setEmoji('📜').setStyle(tab === 'queue' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(tab === 'queue'),
                 new ButtonBuilder().setCustomId('nav_radio').setLabel('Radio').setEmoji('📻').setStyle(tab === 'radio' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(tab === 'radio'),
                 new ButtonBuilder().setCustomId('nav_playlist').setLabel('Playlist').setEmoji('💾').setStyle(tab === 'playlist' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(tab === 'playlist'),
-                new ButtonBuilder().setCustomId('nav_settings').setLabel('Settings').setEmoji('🎛️').setStyle(tab === 'settings' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(tab === 'settings'),
                 new ButtonBuilder().setCustomId('nav_close').setLabel('Đóng').setEmoji('🗑️').setStyle(ButtonStyle.Danger)
             );
             components.push(rowNav);

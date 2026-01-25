@@ -124,12 +124,17 @@ export async function renderMusicPanel(guildId, state, userIdForPlaylist = null)
             .setFooter({ text: `Trang ${page}/${totalPages}` });
 
         const rowRadioControls = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('music_radio_toggle').setLabel(player?.isAutoplay ? 'Tắt 24/7' : 'Bật 24/7').setStyle(player?.isAutoplay ? ButtonStyle.Danger : ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('music_radio_add_current').setLabel('Thêm bài đang phát').setStyle(ButtonStyle.Primary).setDisabled(!player?.currentTrack),
             new ButtonBuilder().setCustomId('music_radio_prev').setEmoji('⬅️').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
+            new ButtonBuilder().setCustomId('music_radio_toggle').setLabel(player?.isAutoplay ? 'Tắt 24/7' : 'Bật 24/7').setStyle(player?.isAutoplay ? ButtonStyle.Danger : ButtonStyle.Success),
             new ButtonBuilder().setCustomId('music_radio_next').setEmoji('➡️').setStyle(ButtonStyle.Secondary).setDisabled(page === totalPages)
         );
-        components.push(rowRadioControls);
+
+        const rowRadioManage = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('music_radio_add_current').setLabel('Thêm bài đang phát').setStyle(ButtonStyle.Secondary).setDisabled(!player?.currentTrack),
+            new ButtonBuilder().setCustomId('music_radio_add_query').setLabel('🔍 Thêm Link/Tên').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('music_radio_remove').setLabel('🗑️ Xóa (Index)').setStyle(ButtonStyle.Danger)
+        );
+        components.push(rowRadioControls, rowRadioManage);
     }
 
     // ==================== TAB: PLAYLIST ====================

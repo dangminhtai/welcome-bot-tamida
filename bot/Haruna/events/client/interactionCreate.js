@@ -108,6 +108,50 @@ export default (client) => {
                             if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
                         }
                     }
+
+                    else if (customId === 'music_modal_radio_add') {
+                        const query = interaction.fields.getTextInputValue('radio_query_input');
+                        const isUrl = /^https?:\/\//.test(query);
+                        let res;
+                        try {
+                            res = await poru.resolve({ query: query, source: isUrl ? null : 'ytsearch', requester: interaction.user });
+                        } catch (e) { return interaction.editReply('❌ Lỗi kết nối.'); }
+
+                        if (!res || res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
+                            return interaction.editReply('❌ Không tìm thấy bài nào.');
+                        }
+
+                        const t = res.tracks[0];
+                        await RadioSong.create({ url: t.info.uri, title: t.info.title, addedBy: interaction.user.tag });
+                        await interaction.editReply(`✅ Đã thêm **${t.info.title}** vào Radio 24/7!`);
+
+                        // Refresh UI
+                        const state = await PanelState.findOne({ messageId: interaction.message?.id });
+                        if (state) {
+                            const newPayload = await renderMusicPanel(guildId, state, interaction.user.id);
+                            if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
+                        }
+                    }
+
+                    else if (customId === 'music_modal_radio_remove') {
+                        const indexStr = interaction.fields.getTextInputValue('radio_index_input');
+                        const index = parseInt(indexStr);
+                        if (isNaN(index)) return interaction.editReply('❌ Vui lòng nhập số hợp lệ!');
+
+                        const songs = await RadioSong.find();
+                        if (index < 1 || index > songs.length) return interaction.editReply(`❌ Index không hợp lệ! (1 - ${songs.length})`);
+
+                        const song = songs[index - 1];
+                        await RadioSong.findByIdAndDelete(song._id);
+                        await interaction.editReply(`🗑️ Đã xóa bài **${song.title}**!`);
+
+                        // Refresh UI
+                        const state = await PanelState.findOne({ messageId: interaction.message?.id });
+                        if (state) {
+                            const newPayload = await renderMusicPanel(guildId, state, interaction.user.id);
+                            if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
+                        }
+                    }
                     return; // Done Modal
                 }
 
@@ -143,6 +187,18 @@ export default (client) => {
                         const modal = new ModalBuilder().setCustomId('music_modal_pl_add_query').setTitle('Thêm vào Playlist');
                         const urlInput = new TextInputBuilder().setCustomId('pl_query_input').setLabel("Link / Tên bài hát").setStyle(TextInputStyle.Short);
                         modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
+                        return interaction.showModal(modal);
+                    }
+                    if (customId === 'music_radio_add_query') {
+                        const modal = new ModalBuilder().setCustomId('music_modal_radio_add').setTitle('Thêm bài Radio 24/7');
+                        const urlInput = new TextInputBuilder().setCustomId('radio_query_input').setLabel("Link / Tên bài hát").setStyle(TextInputStyle.Short);
+                        modal.addComponents(new ActionRowBuilder().addComponents(urlInput));
+                        return interaction.showModal(modal);
+                    }
+                    if (customId === 'music_radio_remove') {
+                        const modal = new ModalBuilder().setCustomId('music_modal_radio_remove').setTitle('Xóa bài Radio 24/7');
+                        const indexInput = new TextInputBuilder().setCustomId('radio_index_input').setLabel("Số thứ tự (Index)").setStyle(TextInputStyle.Short);
+                        modal.addComponents(new ActionRowBuilder().addComponents(indexInput));
                         return interaction.showModal(modal);
                     }
 

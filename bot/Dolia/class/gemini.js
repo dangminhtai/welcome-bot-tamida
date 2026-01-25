@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { RATE_LIMITS } from "../config/rateLimits.js";
 
 export class Gemini {
-    constructor(apiKey, systemInstruction, modelId = 'gemini-2.5-flash-lite') {
+    constructor(apiKey, systemInstruction, modelId = 'gemini-3-flash-preview') {
         this.ai = new GoogleGenAI({ apiKey });
         this.systemInstruction = systemInstruction;
 

@@ -6,7 +6,7 @@ export const data = new SlashCommandBuilder()
     .setDescription('Turn off a sub-bot (Admin only)')
     .addStringOption(option =>
         option.setName('name')
-            .setDescription('Name of the bot folder (e.g., Haruna)')
+            .setDescription('Name of the bot folder (e.g., Dolia)')
             .setRequired(true)
     );
 

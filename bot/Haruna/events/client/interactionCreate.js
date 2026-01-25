@@ -11,6 +11,7 @@ import { applyAudioSettings } from '../../utils/AudioController.js';
 import GuildMusicQueue from '../../models/GuildMusicQueue.js';
 import UserPlaylist from '../../models/UserPlaylist.js';
 import RadioSong from '../../models/RadioSong.js';
+import MusicSetting from '../../models/MusicSetting.js'; // Added missing import
 import { executePlay } from '../../utils/PlayUtils.js';
 import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
 
@@ -264,18 +265,16 @@ export default (client) => {
 
                                 if (targetPlayer) {
                                     targetPlayer.queue.clear();
-                                    targetPlayer.stop();
+                                    // targetPlayer.stop(); // FIX: Removed to prevent crashes
+
                                     const tracksToAdd = [];
 
-                                    // Resolve từng bài (có thể chậm nếu list dài, nhưng an toàn)
-                                    // Tối ưu: resolve 1 bài đầu để phát ngay, các bài sau resolve ngầm?
-                                    // Hiện tại cứ giữ logic cũ nhưng thêm try/catch
                                     for (const t of pl.tracks) {
                                         try {
                                             const res = await poru.resolve({ query: t.url, source: 'ytsearch', requester: interaction.user });
                                             if (res.tracks.length > 0) {
                                                 const track = res.tracks[0];
-                                                track.info.requester = interaction.user; // Set requester
+                                                track.info.requester = interaction.user;
                                                 targetPlayer.queue.add(track);
                                                 tracksToAdd.push({ title: t.title, url: t.url, author: t.author, duration: t.duration, requester: interaction.user.tag, addedAt: new Date() });
                                             }
@@ -283,7 +282,9 @@ export default (client) => {
                                     }
 
                                     if (targetPlayer.queue.length > 0) {
-                                        targetPlayer.play();
+                                        if (targetPlayer.isPlaying || targetPlayer.isPaused) targetPlayer.skip();
+                                        else targetPlayer.play();
+
                                         await GuildMusicQueue.updateOne({ guildId: interaction.guild.id }, { $set: { tracks: tracksToAdd, updatedAt: new Date() } }, { upsert: true });
                                         await interaction.followUp({ content: `▶️ Đang phát Playlist: **${pl.name}**`, ephemeral: true });
                                     } else {

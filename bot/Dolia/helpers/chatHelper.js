@@ -67,8 +67,26 @@ export async function getHistory(userId, chatSession) {
         }
 
         // 4. Ensure starts with User (Clean context)
-        while (history.length > 0 && history[0].role === 'model') {
-            history.shift();
+        // [FIX CRITICAL] Nếu xóa Model đầu tiên, phải kiểm tra xem nó có để lại FunctionResponse mồ côi không.
+        while (history.length > 0) {
+            const firstTurn = history[0];
+
+            if (firstTurn.role === 'model') {
+                history.shift(); // Xóa Model đầu hàng
+                continue;
+            }
+
+            if (firstTurn.role === 'user') {
+                // Nếu User turn này là một FunctionResponse mồ côi (do Model Call vừa bị xóa hoặc bị slice mất) -> Xóa luôn.
+                const isOrphanResponse = firstTurn.parts.some(p => p.functionResponse);
+                if (isOrphanResponse) {
+                    history.shift();
+                    continue;
+                }
+
+                // Nếu là User text bình thường -> OK, dừng lại.
+                break;
+            }
         }
 
         return history;

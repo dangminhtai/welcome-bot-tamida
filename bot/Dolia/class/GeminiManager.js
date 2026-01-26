@@ -15,9 +15,10 @@ class GeminiManager {
             log: (msg) => Logger.info(`[Gemini] ${msg}`)
         };
         this.modelId = 'gemini-3-flash-preview';
-
+        // Tools definition
         this.tools = [{ functionDeclarations: musicTools }];
 
+        // Function mapping
         this.functions = {
             'play_music': MusicFunctions.play_music,
             'control_playback': MusicFunctions.control_playback,
@@ -37,9 +38,11 @@ class GeminiManager {
         const userId = message.author.id;
         const channelId = message.channel.id;
 
+        // 1. Get Session & History
         const chatSession = await ChatHelper.getChatSession(userId, channelId);
         const contents = await ChatHelper.getHistory(userId, chatSession);
 
+        // 2. Add Current User Message
         const userTurn = {
             role: 'user',
             parts: [{ text: message.cleanContent }]
@@ -47,16 +50,11 @@ class GeminiManager {
         contents.push(userTurn);
         const newTurns = [userTurn];
 
-        // Prepare replacements
+        // 3. Prepare System Prompt
         const replacements = {
-            '{{user}}': message.member?.displayName || message.author.globalName || message.author.username || 'User',
-            '{{user_name}}': message.member?.displayName || message.author.username || 'User',
-            '{{user_id}}': userId,
-            '{{server_name}}': message.guild?.name || 'Direct Message (DM)',
-            '{{guild_name}}': message.guild?.name || 'DM',
-            '{{channel_name}}': message.channel.name || 'Private Chat',
+            '{{user}}': message.member?.displayName || message.author.globalName || 'User',
+            '{{server_name}}': message.guild?.name || 'DM',
             '{{time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-            '{{current_time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
             '{{bot_name}}': message.client.user.username || 'Dolia'
         };
         const systemInstruction = loadSystemPrompt(replacements);
@@ -67,6 +65,7 @@ class GeminiManager {
             let functionCallAttempts = 0;
             let finalResponseText = null;
 
+            // Loop for Function Calling (Max 5 turns)
             while (functionCallAttempts < 5) {
                 const response = await ai.models.generateContent({
                     model: this.modelId,
@@ -94,6 +93,7 @@ class GeminiManager {
 
                     this.logger.info(`Function Calls detected: ${callNames}`);
 
+                    // A. Save Model Call Turn
                     const modelCallTurn = {
                         role: 'model',
                         parts: responseParts
@@ -101,6 +101,7 @@ class GeminiManager {
                     contents.push(modelCallTurn);
                     newTurns.push(modelCallTurn);
 
+                    // B. Execute Functions & Prepare Response
                     const functionResponseParts = [];
 
                     for (const part of responseParts) {
@@ -122,6 +123,7 @@ class GeminiManager {
                                 apiResponse = { error: `Function ${call.name} not found` };
                             }
 
+                            // IMPORTANT: Include 'id' in functionResponse
                             functionResponseParts.push({
                                 functionResponse: {
                                     name: call.name,
@@ -132,6 +134,7 @@ class GeminiManager {
                         }
                     }
 
+                    // C. Save User Response Turn
                     const functionResponseTurn = {
                         role: 'user',
                         parts: functionResponseParts
@@ -140,19 +143,19 @@ class GeminiManager {
                     newTurns.push(functionResponseTurn);
 
                 } else {
+                    // No function call -> Final Text Response
                     finalResponseText = response.text || responseParts.find(p => p.text)?.text || "";
 
                     newTurns.push({
                         role: 'model',
                         parts: [{ text: finalResponseText }]
                     });
-
                     break;
                 }
-
                 functionCallAttempts++;
             }
 
+            // 4. Save new turns to DB
             if (newTurns.length > 0) {
                 await ChatHelper.saveInteraction(chatSession, newTurns);
             }

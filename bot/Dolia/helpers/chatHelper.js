@@ -22,7 +22,7 @@ export async function getHistory(userId, chatSession) {
         if (!chatSession || !chatSession.turns || chatSession.turns.length === 0) return [];
 
         // 1. Get raw turns (Lấy dư ra một chút để có thể lọc bớt)
-        const rawTurns = chatSession.turns.slice(-(limit + 5));
+        const rawTurns = chatSession.turns.slice(-(limit + 6));
 
         // 2. Map & Clean Data (FIX CRITICAL: p.toObject crash)
         let history = rawTurns.map(turn => {

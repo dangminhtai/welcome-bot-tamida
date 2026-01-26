@@ -157,7 +157,7 @@ export async function control_playback({ guild, action }) {
 /**
  * 3. Audio Settings
  */
-export async function adjust_audio_settings({ guild, settings }) {
+export async function adjust_audio_settings({ guild, ...settings }) {
     const player = poru.players.get(guild.id);
 
     // Find or create setting

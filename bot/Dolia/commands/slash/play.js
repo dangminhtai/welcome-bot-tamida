@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChannelType } from 'discord.js'; // Nhớ import C
 import { poru } from '../../utils/LavalinkManager.js';
 import { applyAudioSettings } from '../../utils/AudioController.js';
 import GuildMusicQueue from '../../models/GuildMusicQueue.js';
+import User from '../../models/User.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -66,7 +67,15 @@ export default {
         let res;
         try {
             // Logic tự nhận diện URL như lúc nãy đã bàn
-            res = await poru.resolve({ query: query, source: isUrl ? null : 'ytsearch', requester: interaction.user });
+            // Logic tự nhận diện URL như lúc nãy đã bàn
+            let source = 'ytsearch';
+            if (!isUrl) {
+                const userConfig = await User.findOne({ userId: interaction.user.id });
+                if (userConfig && userConfig.musicProvider) {
+                    source = userConfig.musicProvider;
+                }
+            }
+            res = await poru.resolve({ query: query, source: isUrl ? null : source, requester: interaction.user });
         } catch (error) {
             console.error('Lavalink Resolve Error:', error);
             return interaction.editReply('❌ Lỗi kết nối Node nhạc (Bad Gateway).');

@@ -16,7 +16,7 @@ export default (client) => {
         if (interaction.isButton() && interaction.customId.startsWith('welcome_')) {
             try {
                 // Dynamic import to avoid circular dependency issues if any
-                const { default: WelcomeMessage } = await import('../../models/WelcomeMessage.js');
+                const { default: WelcomeMessage } = await import('../models/WelcomeMessage.js');
                 const doc = await WelcomeMessage.findOne({ customId: interaction.customId });
                 if (!doc) return;
 
@@ -36,7 +36,7 @@ export default (client) => {
                 if (!interaction.guild) {
                     return interaction.reply({ content: '❌ Chỉ dùng được trong server.', flags: MessageFlags.Ephemeral });
                 }
-                const { default: RoleConfig } = await import('../../models/RoleConfig.js');
+                const { default: RoleConfig } = await import('../models/RoleConfig.js');
                 const cfg = await RoleConfig.findOne({ buttonId: interaction.customId, guildId: interaction.guild.id });
                 if (!cfg) {
                     return interaction.reply({ content: '❌ Cấu hình role không tồn tại hoặc đã bị xóa.', flags: MessageFlags.Ephemeral });

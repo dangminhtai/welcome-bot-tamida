@@ -26,7 +26,7 @@ export default {
 
         try {
             await User.findOneAndUpdate(
-                { discordId: userId },
+                { userId: userId },
                 { musicProvider: source },
                 { upsert: true, new: true }
             );

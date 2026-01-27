@@ -72,4 +72,15 @@ async function main() {
         Logger.error(`❌ Fatal Error during startup: ${err}`);
     }
 }
+// --- GLOBAL ERROR HANDLERS to prevent crash ---
+process.on('unhandledRejection', (reason, promise) => {
+    Logger.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    // Không exit process, chỉ log lỗi để bot vẫn chạy
+});
+
+process.on('uncaughtException', (err) => {
+    Logger.error('❌ Uncaught Exception:', err);
+    // Không exit process
+});
+
 main();

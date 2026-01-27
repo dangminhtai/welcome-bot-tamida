@@ -99,10 +99,24 @@ export function initLavalink(discordClient) {
 
     // --- SỰ KIỆN TRACK ERROR (NHẠC LỖI) ---
     // Cái này cực quan trọng: Nếu bài hát lỗi, nó sẽ không crash mà tự gọi queueEnd hoặc skip
-    poru.on('trackError', (player, track, error) => {
+    // --- SỰ KIỆN TRACK ERROR (NHẠC LỖI) ---
+    poru.on('trackError', async (player, track, error) => {
         console.error(`⚠️ Track Lỗi [${track.info.title}]:`, error);
-        // Nếu lỗi, thử skip sang bài tiếp theo (nếu có)
-        // Nếu không có, nó sẽ tự kích hoạt queueEnd
+
+        // Gửi thông báo lỗi cho người dùng
+        const channel = await getSafeChannel(player.textChannel);
+        if (channel) {
+            channel.send(`⚠️ Lỗi tải bài hát **${track.info.title}**. Đang tự động bỏ qua...`).catch(() => { });
+        }
+
+        // Tự động skip sang bài khác (nếu còn) hoặc queueEnd sẽ tự chạy
+        if (player.queue.size > 0) {
+            player.stop();
+        } else {
+            // Nếu không còn nhạc, event queueEnd sẽ lo. 
+            // Nhưng để chắc ăn, gọi stop() để kích hoạt dòng chảy sự kiện.
+            player.stop();
+        }
     });
 
     poru.on('trackStuck', async (player, track, threshold) => {
@@ -110,11 +124,18 @@ export function initLavalink(discordClient) {
 
         const channel = await getSafeChannel(player.textChannel);
         if (channel) {
-            channel.send(`⚠️ Bài hát **${track.info.title}** bị kẹt (mạng lag). Bot tự động chuyển bài tiếp theo!`).catch(() => { });
+            channel.send(`⚠️ Bài hát **${track.info.title}** bị kẹt (mạng lag or YouTube chặn). Bot tự động chuyển bài tiếp theo!`).catch(() => { });
         }
 
-        // Lệnh này sẽ dừng bài đang kẹt -> Kích hoạt sự kiện queueEnd/trackStart tiếp theo
-        player.stop();
+        // Bắt buộc dừng player để kích hoạt sự kiện tiếp theo
+        // Sử dụng try-catch để tránh crash nếu player đã bị destroy
+        try {
+            player.stop();
+        } catch (err) {
+            console.error("Lỗi khi cố stop track bị kẹt:", err);
+            // Nếu stop lỗi (vd player chết), thử destroy luôn để reset
+            player.destroy();
+        }
     });
 
     // --- SỰ KIỆN QUEUE END (HẾT NHẠC) ---

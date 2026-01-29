@@ -13,7 +13,9 @@ import UserPlaylist from '../../models/UserPlaylist.js';
 import RadioSong from '../../models/RadioSong.js';
 import MusicSetting from '../../models/MusicSetting.js'; // Added missing import
 import { executePlay } from '../../utils/PlayUtils.js';
-import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
+import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } from 'discord.js';
+import GeminiLyrics from '../../class/GeminiLyrics.js';
+import { sendSafeMessage } from '../../utils/messageHelper.js';
 
 export default (client) => {
     client.on(Events.InteractionCreate, async interaction => {
@@ -152,7 +154,7 @@ export default (client) => {
                             if (interaction.message) await interaction.message.edit(newPayload).catch(() => { });
                         }
                     }
-                    return; // Done Modal
+                    return; // Done Music Modals
                 }
 
                 // ================== B. XỬ LÝ BUTTON & MENU ==================
@@ -368,6 +370,49 @@ export default (client) => {
             return; // STOP
         }
 
+        // --- 0.2 XỬ LÝ MODAL CHUNG (Lyrics...) ---
+        if (interaction.isModalSubmit() && !interaction.customId?.startsWith('music_')) {
+            const customId = interaction.customId;
+            if (customId === 'lyrics_modal') {
+                if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
+                const query = interaction.fields.getTextInputValue('lyrics_query_input');
+                try {
+                    const data = await GeminiLyrics.findLyrics(query);
+                    if (!data.is_found) {
+                        return interaction.editReply(`❌ Xin lỗi, tôi không tìm thấy bài hát nào khớp với nội dung: \`${query}\``);
+                    }
+                    const embed = new EmbedBuilder()
+                        .setTitle(`🎵 ${data.song_title}`)
+                        .setAuthor({ name: data.artist })
+                        .setColor(0x1DB954)
+                        .setThumbnail(data.thumbnail_url || 'https://cdn-icons-png.flaticon.com/512/3844/3844724.png')
+                        .setFooter({ text: 'Dolia Lyrics Search' })
+                        .setTimestamp();
+                    if (data.release_year) {
+                        embed.addFields({ name: '📅 Năm phát hành', value: String(data.release_year), inline: true });
+                    }
+                    if (data.song_link) {
+                        embed.addFields({ name: '🔗 Nghe nhạc tại', value: `[Nhấp để mở Link](${data.song_link})`, inline: true });
+                    }
+                    if (data.lyrics.length <= 2000) {
+                        embed.setDescription(data.lyrics);
+                        await interaction.editReply({ embeds: [embed] });
+                    } else {
+                        embed.setDescription(data.lyrics.substring(0, 1900) + '...\n\n*(Xem bản đầy đủ ở file đính kèm bên dưới)*');
+                        await interaction.editReply({ embeds: [embed] });
+                        await sendSafeMessage(interaction, data.lyrics, {
+                            forceFile: true,
+                            fileName: `${data.song_title}_lyrics.md`.replace(/\s+/g, '_'),
+                            fileContent: `📜 Đây là lời bài hát đầy đủ cho bài **${data.song_title}**:`
+                        });
+                    }
+                } catch (error) {
+                    console.error('Lyrics Modal Error:', error);
+                    await interaction.editReply('❌ Đã xảy ra lỗi khi tìm kiếm lời bài hát. Hãy thử lại sau!');
+                }
+            }
+            return;
+        }
 
         // --- 1. XỬ LÝ GAME CÂY THÔNG (BUTTON & MENU) ---
         if (interaction.customId?.startsWith('tree_') && (interaction.isButton() || interaction.isStringSelectMenu())) {

@@ -3,6 +3,7 @@ import { Type } from "@google/genai";
 export const musicTools = [
     // 1. Play Music
     {
+        type: 'function',
         name: "play_music",
         description: "Phát một bài hát hoặc playlist từ YouTube/Spotify/SoundCloud dựa trên tên hoặc link.",
         parameters: {
@@ -14,7 +15,7 @@ export const musicTools = [
                 },
                 priority: {
                     type: Type.BOOLEAN,
-                    description: "Nếu true, bài hát sẽ được ưu tiên phát ngay lập tức, hoặc false thì bài hát đó sẽ vô hàng chờ để đợi bài hát hiện tại hát xong"
+                    description: "Nếu true, bài hát sẽ được ưu tiên phát ngay lập tức (chèn vào đầu hàng chờ). Mặc định là false."
                 }
             },
             required: ["query"]
@@ -23,6 +24,7 @@ export const musicTools = [
 
     // 2. Control Playback
     {
+        type: 'function',
         name: "control_playback",
         description: "Điều khiển trình phát nhạc: Bỏ qua bài, Dừng hẳn, Tạm dừng hoặc Tiếp tục.",
         parameters: {
@@ -40,6 +42,7 @@ export const musicTools = [
 
     // 3. Audio Settings
     {
+        type: 'function',
         name: "adjust_audio_settings",
         description: "Điều chỉnh các thông số âm thanh như âm lượng, tốc độ, cao độ và các hiệu ứng.",
         parameters: {
@@ -75,6 +78,7 @@ export const musicTools = [
 
     // 4. Manage Radio
     {
+        type: 'function',
         name: "manage_radio",
         description: "Thêm hoặc xóa bài hát trong danh sách phát Radio 24/7.",
         parameters: {
@@ -100,6 +104,7 @@ export const musicTools = [
 
     // 5. Show Music Panel
     {
+        type: 'function',
         name: "show_music_panel",
         description: "Hiển thị bảng điều khiển nhạc trực quan (Buttons) cho người dùng.",
         parameters: {

@@ -118,7 +118,6 @@ export async function saveInteraction(chatSession, newContents) {
             });
         }
 
-        // Limit history size in DB
         if (chatSession.turns.length > 50) {
             chatSession.turns = chatSession.turns.slice(-50);
         }
@@ -126,5 +125,14 @@ export async function saveInteraction(chatSession, newContents) {
         await chatSession.save();
     } catch (error) {
         console.error('Failed to save interaction:', error);
+    }
+}
+
+export async function saveLastInteractionId(chatSession, interactionId) {
+    try {
+        chatSession.lastInteractionId = interactionId;
+        await chatSession.save();
+    } catch (error) {
+        console.error('Failed to save lastInteractionId:', error);
     }
 }

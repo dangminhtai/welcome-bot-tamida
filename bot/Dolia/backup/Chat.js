@@ -16,6 +16,7 @@ const chatSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     channelId: { type: String, required: true },
     turns: [chatTurnSchema],
+    lastInteractionId: { type: String, default: null }
 });
 
 chatSchema.index({ userId: 1, channelId: 1 });

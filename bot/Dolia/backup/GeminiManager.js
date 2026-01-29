@@ -18,8 +18,9 @@ class GeminiManager {
             log: (msg) => Logger.info(`[Gemini] ${msg}`)
         };
         this.modelId = 'gemini-3-flash-preview';
-        // Tools definition
-        this.tools = [{ functionDeclarations: musicTools }];
+
+        // Tools definition (Direct array for Interactions API)
+        this.tools = musicTools;
 
         // Function mapping
         this.functions = {
@@ -42,19 +43,13 @@ class GeminiManager {
         const channelId = message.channel.id;
         const guildId = message.guild?.id;
 
-        // 1. Get Session & History
+        // 1. Get Session (Only for ID)
         const chatSession = await ChatHelper.getChatSession(userId, channelId);
-        const contents = await ChatHelper.getHistory(userId, chatSession);
 
-        // 2. Add Current User Message
-        const userTurn = {
-            role: 'user',
-            parts: [{ text: message.cleanContent }]
-        };
-        contents.push(userTurn);
-        const newTurns = [userTurn];
+        // Note: usage of ChatHelper.getHistory is REMOVED for API call.
+        // We rely entirely on chatSession.lastInteractionId for context.
 
-        // 3. Prepare Music Data for Context
+        // 2. Prepare Music Data for Context (System Prompt Injection)
         let musicStatus = "Đang rảnh rỗi (Chưa vào voice)";
         let currentTrack = "Không có";
         let queuePreview = "Trống";
@@ -67,12 +62,10 @@ class GeminiManager {
             const settings = await MusicSetting.findOne({ guildId });
 
             if (settings) {
-                volume = settings.volume; // Default volume from DB
-                // radioMode = settings.radioEnabled ? "On" : "Off"; (If you have this field)
+                volume = settings.volume;
             }
 
             if (player) {
-                // Volume from active player is more accurate
                 volume = player.volume;
 
                 if (player.isPlaying) musicStatus = "Đang phát nhạc";
@@ -84,7 +77,6 @@ class GeminiManager {
                     currentTrack = `[${info.title}](${info.uri}) - ${info.author}`;
                 }
 
-                // Queue Preview (First 3 songs)
                 if (player.queue.length > 0) {
                     queuePreview = player.queue.slice(0, 3)
                         .map((track, i) => `${i + 1}. ${track.info.title}`)
@@ -92,35 +84,29 @@ class GeminiManager {
                     if (player.queue.length > 3) queuePreview += `\n... và ${player.queue.length - 3} bài nữa`;
                 }
 
-                // Loop State
                 if (player.loop === 'TRACK') loopMode = "Loop track (1 bài)";
                 else if (player.loop === 'QUEUE') loopMode = "Loop queue (Toàn bộ)";
             }
         }
 
-        // 3b. Prepare User History (Music Habits)
+        // 3. Prepare User History (Music Habits) - For System Prompt
         let listeningHistorySummary = "Chưa có dữ liệu lịch sử nghe nhạc.";
         try {
-            // Get last 50 songs requested by this user
             const logs = await MusicLog.find({ requesterId: userId })
                 .sort({ playedAt: -1 })
                 .limit(50)
                 .lean();
 
             if (logs.length > 0) {
-                // Find Top 3 Songs & Artists
                 const songCounts = {};
                 const artistCounts = {};
-                const hourCounts = {}; // For time habit
+                const hourCounts = {};
 
                 logs.forEach(log => {
-                    // Song
                     songCounts[log.trackTitle] = (songCounts[log.trackTitle] || 0) + 1;
-                    // Artist (if available)
                     if (log.trackAuthor) {
                         artistCounts[log.trackAuthor] = (artistCounts[log.trackAuthor] || 0) + 1;
                     }
-                    // Time habit
                     if (log.playedAt) {
                         const hour = new Date(log.playedAt).getHours();
                         let timeRange = "Ban ngày";
@@ -153,7 +139,7 @@ ${topSongsStr || "- Chưa có bài nào nổi bật"}
         }
 
 
-        // 4. Prepare System Prompt Replacements
+        // 4. Prepare System Prompt
         const replacements = {
             '{{user}}': message.member?.displayName || message.author.globalName || message.author.username || 'User',
             '{{user_name}}': message.member?.displayName || message.author.username || 'User',
@@ -162,10 +148,8 @@ ${topSongsStr || "- Chưa có bài nào nổi bật"}
             '{{guild_name}}': message.guild?.name || 'Direct Message',
             '{{channel_name}}': message.channel.name || 'Private Chat',
             '{{current_time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-            '{{time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }), // Alias
+            '{{time}}': new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
             '{{bot_name}}': message.client.user.username || 'Dolia',
-
-            // Music Context
             '{{music_status}}': musicStatus,
             '{{current_track}}': currentTrack,
             '{{queue_preview}}': queuePreview,
@@ -177,106 +161,134 @@ ${topSongsStr || "- Chưa có bài nào nổi bật"}
 
         const systemInstruction = loadSystemPrompt(replacements);
 
+        // --- INTERACTIONS API EXECUTION ---
         return await ApiKeyManager.execute(this.modelId, async (key) => {
-            const ai = new GoogleGenAI({ apiKey: key });
-            // ... (Rest of logic remains same)
+            const client = new GoogleGenAI({ apiKey: key });
 
-            let functionCallAttempts = 0;
             let finalResponseText = null;
+            let currentInteractionId = chatSession.lastInteractionId;
+            let currentInput = message.cleanContent; // First turn input is just text
+            let shouldContinue = true;
+            let loopCount = 0;
 
-            // Loop for Function Calling (Max 5 turns)
-            while (functionCallAttempts < 5) {
-                const response = await ai.models.generateContent({
+            this.logger.info(`Starting Chat... (PrevID: ${currentInteractionId ? currentInteractionId : 'New Session'})`);
+
+            while (shouldContinue && loopCount < 5) {
+                const requestDetail = {
                     model: this.modelId,
-                    contents: contents,
-                    config: {
-                        tools: this.tools,
-                        systemInstruction: systemInstruction,
+                    input: currentInput,
+                    tools: this.tools,
+                    system_instruction: systemInstruction, // Top level, snake_case as per Beta docs
+                    generation_config: {
                         temperature: 1.5,
-                        topK: 40,
-                        topP: 0.95
+                        top_p: 0.95
                     }
-                });
+                };
 
-                const candidate = response.candidates?.[0];
-                const content = candidate?.content;
-                const responseParts = content?.parts || [];
+                if (currentInteractionId) {
+                    requestDetail.previous_interaction_id = currentInteractionId;
+                }
 
-                const hasFunctionCall = responseParts.some(p => p.functionCall);
+                let interaction;
+                try {
+                    interaction = await client.interactions.create(requestDetail);
+                } catch (err) {
+                    // Check for invalid interaction ID error
+                    // Check for invalid interaction ID or invalid turn order (400)
+                    if (
+                        err.message?.includes('Found no interaction with id') ||
+                        err.message?.includes('invalid_request') ||
+                        err.status === 404 || err.code === 404 ||
+                        err.status === 400 || err.code === 400
+                    ) {
+                        this.logger.warn(`⚠️ Interaction ${currentInteractionId} expired/invalid. Restarting new session.`);
+                        delete requestDetail.previous_interaction_id;
+                        currentInteractionId = null;
+                        // Reset input to original message if we are restarting
+                        requestDetail.input = message.cleanContent;
+                        interaction = await client.interactions.create(requestDetail);
+                    } else {
+                        throw err;
+                    }
+                }
 
-                if (hasFunctionCall) {
-                    const callNames = responseParts
-                        .filter(p => p.functionCall)
-                        .map(p => p.functionCall.name)
-                        .join(', ');
+                // Update ID for next turn and storage
+                currentInteractionId = interaction.id;
 
-                    this.logger.info(`Function Calls detected: ${callNames}`);
+                // Process Outputs
+                let functionCalls = [];
+                let textResponse = "";
 
-                    // A. Save Model Call Turn
-                    const modelCallTurn = {
-                        role: 'model',
-                        parts: responseParts
-                    };
-                    contents.push(modelCallTurn);
-                    newTurns.push(modelCallTurn);
-
-                    // B. Execute Functions & Prepare Response
-                    const functionResponseParts = [];
-
-                    for (const part of responseParts) {
-                        if (part.functionCall) {
-                            const call = part.functionCall;
-                            const fn = this.functions[call.name];
-                            let apiResponse;
-
-                            if (fn) {
-                                try {
-                                    const args = { ...call.args, ...context };
-                                    const result = await fn(args);
-                                    apiResponse = { result: result };
-                                } catch (error) {
-                                    apiResponse = { error: error.message };
-                                    console.error(`Error executing ${call.name}:`, error);
-                                }
-                            } else {
-                                apiResponse = { error: `Function ${call.name} not found` };
-                            }
-
-                            // IMPORTANT: Include 'id' in functionResponse
-                            functionResponseParts.push({
-                                functionResponse: {
-                                    name: call.name,
-                                    response: apiResponse,
-                                    id: call.id
-                                }
-                            });
+                if (interaction.outputs) {
+                    for (const output of interaction.outputs) {
+                        if (output.type === 'function_call') {
+                            functionCalls.push(output);
+                        } else if (output.type === 'text') {
+                            textResponse += output.text;
                         }
                     }
-
-                    // C. Save User Response Turn
-                    const functionResponseTurn = {
-                        role: 'user',
-                        parts: functionResponseParts
-                    };
-                    contents.push(functionResponseTurn);
-                    newTurns.push(functionResponseTurn);
-
-                } else {
-                    // No function call -> Final Text Response
-                    finalResponseText = response.text || responseParts.find(p => p.text)?.text || "";
-
-                    newTurns.push({
-                        role: 'model',
-                        parts: [{ text: finalResponseText }]
-                    });
-                    break;
                 }
-                functionCallAttempts++;
+
+                if (functionCalls.length > 0) {
+                    this.logger.info(`Detected ${functionCalls.length} function call(s).`);
+
+                    // Execute all calls and prepare results for NEXT turn
+                    const resultInputs = [];
+
+                    for (const call of functionCalls) {
+                        const callName = call.name;
+                        const args = call.arguments;
+                        const callId = call.id;
+
+                        this.logger.info(`Using Tool: ${callName}`);
+
+                        const fn = this.functions[callName];
+                        let apiResponse;
+
+                        if (fn) {
+                            try {
+                                const fnArgs = { ...args, ...context };
+                                const result = await fn(fnArgs);
+                                apiResponse = { result: result };
+                            } catch (error) {
+                                console.error(`Error executing ${callName}:`, error);
+                                apiResponse = { error: error.message };
+                            }
+                        } else {
+                            apiResponse = { error: `Function ${callName} not found` };
+                        }
+
+                        resultInputs.push({
+                            type: 'function_result',
+                            name: callName,
+                            call_id: callId,
+                            result: apiResponse
+                        });
+                    }
+
+                    // Prepare next loop with function results
+                    currentInput = resultInputs;
+                    shouldContinue = true;
+                    loopCount++;
+                } else {
+                    // Final text response
+                    finalResponseText = textResponse;
+                    shouldContinue = false;
+                }
             }
 
-            // 4. Save new turns to DB
-            if (newTurns.length > 0) {
-                await ChatHelper.saveInteraction(chatSession, newTurns);
+            // Save the valid Interaction ID for next time
+            if (currentInteractionId) {
+                await ChatHelper.saveLastInteractionId(chatSession, currentInteractionId);
+            }
+
+            // Save Local History (Optional: for user viewing only, NOT used for context next time)
+            if (finalResponseText) {
+                const manualTurns = [
+                    { role: 'user', parts: [{ text: message.cleanContent }] },
+                    { role: 'model', parts: [{ text: finalResponseText }] }
+                ];
+                await ChatHelper.saveInteraction(chatSession, manualTurns);
             }
 
             return finalResponseText;

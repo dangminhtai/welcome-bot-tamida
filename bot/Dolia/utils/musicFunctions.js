@@ -34,28 +34,51 @@ export async function play_music({ guild, channel, user, query, priority }) {
     }
 
     if (!voiceChannel) {
-        return "❌ Bot không tìm thấy kênh Voice nào để vào cả! Bạn hãy vào một kênh Voice trước.";
+        return { success: false, error: "NO_VOICE_CHANNEL", message: "User not in voice and no available channel." };
     }
 
     // Connect to voice
-    const connection = poru.createConnection({
-        guildId: guild.id,
-        voiceChannel: voiceChannel.id,
-        textChannel: channel.id,
-        deaf: true,
-    });
+    let connection;
+    try {
+        connection = poru.createConnection({
+            guildId: guild.id,
+            voiceChannel: voiceChannel.id,
+            textChannel: channel.id,
+            deaf: true,
+        });
+    } catch (err) {
+        console.error("Poru Create Connection Error:", err);
+        return { success: false, error: "CONNECTION_ERROR", message: "Không thể kết nối đến Voice (No Nodes Available)." };
+    }
 
     // Apply settings only if new connection or just to be safe
     if (!player) await applyAudioSettings(connection);
 
     // Resolve Track
     const isUrl = /^https?:\/\//.test(query);
-    const res = await poru.resolve({ query, source: isUrl ? null : 'ytsearch', requester: user });
+    let res;
+    let resolveAttempts = 0;
+    const maxResolveRetries = 3;
+
+    while (resolveAttempts < maxResolveRetries) {
+        try {
+            res = await poru.resolve({ query, source: isUrl ? null : 'ytsearch', requester: user });
+            if (res) break; // Success
+        } catch (err) {
+            console.warn(`⚠️ Music Resolve Error (Attempt ${resolveAttempts + 1}/${maxResolveRetries}): ${err.message}`);
+            resolveAttempts++;
+            if (resolveAttempts >= maxResolveRetries) {
+                return { success: false, error: "RESOLVE_FAILED", message: "Lỗi kết nối đến máy chủ nhạc (Timeout/Proxy Error)." };
+            }
+            // Wait 1s before retry
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
 
     if (res.loadType === 'LOAD_FAILED') {
-        return "❌ Lỗi khi tải nhạc (Load Failed).";
+        return { success: false, error: "LOAD_FAILED", message: "Lỗi tải nhạc từ nguồn." };
     } else if (res.loadType === 'NO_MATCHES') {
-        return "❌ Không tìm thấy bài hát nào.";
+        return { success: false, error: "NO_MATCHES", message: "Không tìm thấy bài hát nào." };
     }
 
     // Handle Tracks & DB
@@ -83,22 +106,25 @@ export async function play_music({ guild, channel, user, query, priority }) {
             for (let i = res.tracks.length - 1; i >= 0; i--) {
                 currentPlayer.queue.unshift(res.tracks[i]);
             }
-            addedMsg = `⚡ **[ƯU TIÊN]** Đã chèn Playlist **${res.playlistInfo.name}** lên đầu!`;
+            addedMsg = `⚡ [ƯU TIÊN] Playlist: ${res.playlistInfo.name}`;
         } else {
             currentPlayer.queue.add(res.tracks);
-            addedMsg = `Playlist: ${res.playlistInfo.name} (${res.tracks.length} bài)`;
+            addedMsg = `Playlist: ${res.playlistInfo.name}`;
         }
     } else {
         const track = res.tracks[0];
+        if (!track) {
+            return { success: false, error: "TRACK_UNDEFINED", message: "Không tìm thấy thông tin bài hát." };
+        }
         track.info.requester = user;
         tracksToAdd.push(formatTrackForDB(track));
 
         if (priority) {
             currentPlayer.queue.unshift(track);
-            addedMsg = `⚡ **[ƯU TIÊN]** Đã chèn **${track.info.title}** lên đầu!`;
+            addedMsg = `⚡ [ƯU TIÊN] Bài: ${track.info.title}`;
         } else {
             currentPlayer.queue.add(track);
-            addedMsg = track.info.title;
+            addedMsg = `Bài: ${track.info.title}`;
         }
     }
 
@@ -124,7 +150,12 @@ export async function play_music({ guild, channel, user, query, priority }) {
         }
     }
 
-    return `🎶 Đã thêm vào hàng chờ: **${addedMsg}** Tại kênh: ${voiceChannel.name}`;
+    return {
+        success: true,
+        message: addedMsg,
+        voiceChannel: voiceChannel.name,
+        trackCount: tracksToAdd.length
+    };
 }
 
 /**
@@ -132,25 +163,23 @@ export async function play_music({ guild, channel, user, query, priority }) {
  */
 export async function control_playback({ guild, action }) {
     const player = poru.players.get(guild.id);
-    if (!player) return "❌ Bot chưa phát nhạc.";
+    if (!player) return { success: false, message: "❌ Bot chưa phát nhạc." };
 
     switch (action) {
         case 'skip':
-            player.stop();
-            return "⏭️ Đã bỏ qua bài hát.";
+            player.skip();
+            return { success: true, message: "⏭️ Đã bỏ qua bài hát." };
         case 'stop':
             player.destroy();
-            // Clear DB Queue? Optional, usually we keep history or clear it.
-            // But let's verify PlaySlash logic. It usually just destroys.
-            return "🛑 Đã dừng nhạc và rời kênh.";
+            return { success: true, message: "🛑 Đã dừng nhạc và rời kênh." };
         case 'pause':
             player.pause(true);
-            return "⏸️ Đã tạm dừng.";
+            return { success: true, message: "⏸️ Đã tạm dừng." };
         case 'resume':
             player.pause(false);
-            return "▶️ Đã tiếp tục phát.";
+            return { success: true, message: "▶️ Đã tiếp tục phát." };
         default:
-            return "❌ Hành động không hợp lệ.";
+            return { success: false, message: "❌ Hành động không hợp lệ." };
     }
 }
 
@@ -176,7 +205,6 @@ export async function adjust_audio_settings({ guild, ...settings }) {
         if (settings.pitch !== undefined) dbSetting.pitch = settings.pitch;
         if (settings.nightcore !== undefined) {
             dbSetting.nightcore = settings.nightcore;
-            // Sync logic from slash command usually relates nightcore to speed/pitch
             if (dbSetting.nightcore) {
                 dbSetting.speed = 1.2;
                 dbSetting.pitch = 1.2;
@@ -193,10 +221,24 @@ export async function adjust_audio_settings({ guild, ...settings }) {
     // Apply if player exists
     if (player) {
         await applyAudioSettings(player);
-        return `✅ Đã cập nhật cài đặt âm thanh! (Volume: ${dbSetting.volume}, Nightcore: ${dbSetting.nightcore ? 'On' : 'Off'})`;
+        return {
+            success: true,
+            message: `✅ Đã cập nhật cài đặt âm thanh!`,
+            settings: {
+                volume: dbSetting.volume,
+                nightcore: dbSetting.nightcore,
+                speed: dbSetting.speed
+            }
+        };
     }
 
-    return `✅ Đã lưu cài đặt (Bot sẽ áp dụng khi phát nhạc).`;
+    return {
+        success: true,
+        message: `✅ Đã lưu cài đặt (áp dụng khi phát nhạc).`,
+        settings: {
+            volume: dbSetting.volume
+        }
+    };
 }
 
 /**
@@ -204,11 +246,13 @@ export async function adjust_audio_settings({ guild, ...settings }) {
  */
 export async function manage_radio({ guild, user, action, query, index }) {
     if (action === 'add') {
-        if (!query) return "❌ Vui lòng nhập link bài hát.";
+        if (!query) return { success: false, message: "❌ Vui lòng nhập link bài hát." };
 
         // Check URL validity using Poru
         const res = await poru.resolve({ query, source: 'ytsearch', requester: user });
-        if (res.loadType !== 'TRACK_LOADED' && res.loadType !== 'SEARCH_RESULT' && res.loadType !== 'PLAYLIST_LOADED') return "❌ Link không hợp lệ.";
+        if (res.loadType !== 'TRACK_LOADED' && res.loadType !== 'SEARCH_RESULT' && res.loadType !== 'PLAYLIST_LOADED') {
+            return { success: false, message: "❌ Link không hợp lệ hoặc không tìm thấy nhạc." };
+        }
 
         let title = "Unknown";
         let url = query;
@@ -222,19 +266,19 @@ export async function manage_radio({ guild, user, action, query, index }) {
             title: title,
             addedBy: user.username
         });
-        return `✅ Đã thêm vào Radio: **${title}**`;
+        return { success: true, message: `✅ Đã thêm vào Radio: **${title}**` };
     }
 
     else if (action === 'remove') {
         const songs = await RadioSong.find().sort({ addedAt: 1 });
-        if (!index || index < 1 || index > songs.length) return "❌ Số thứ tự không hợp lệ.";
+        if (!index || index < 1 || index > songs.length) return { success: false, message: "❌ Số thứ tự không hợp lệ." };
 
         const songToRemove = songs[index - 1];
         await RadioSong.findByIdAndDelete(songToRemove._id);
-        return `🗑️ Đã xóa khỏi Radio: **${songToRemove.title}**`;
+        return { success: true, message: `🗑️ Đã xóa khỏi Radio: **${songToRemove.title}**` };
     }
 
-    return "❌ Hành động sai.";
+    return { success: false, message: "❌ Hành động không hợp lệ." };
 }
 
 /**
@@ -261,5 +305,10 @@ export async function show_music_panel({ guild, channel, user }) {
         ...initialState
     });
 
-    return "✅ Đã mở bảng điều khiển nhạc!";
+    return {
+        success: true,
+        message: "✅ Đã hiển thị bảng điều khiển nhạc.",
+        panelId: message.id,
+        channel: channel.name
+    };
 }

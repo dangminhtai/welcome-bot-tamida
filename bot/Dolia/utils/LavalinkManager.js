@@ -2,10 +2,11 @@ import { Poru } from 'poru';
 import RadioSong from '../models/RadioSong.js';
 import MusicLog from '../models/MusicLog.js';
 import GuildMusicQueue from '../models/GuildMusicQueue.js';
+
 // Chỉ giữ lại Node "vàng" đã kết nối thành công
 const nodes = [
     {
-        name: 'Serenetia-V4',
+        name: 'Lavalink-1',
         host: 'lavalinkv4.serenetia.com',
         port: 443,
         password: 'https://dsc.gg/ajidevserver',

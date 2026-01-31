@@ -140,3 +140,7 @@ vite.config.ts.timestamp-*
 
 script/
 test/
+
+# Dolia Internal Files
+bot/Dolia/docs/
+bot/Dolia/test/

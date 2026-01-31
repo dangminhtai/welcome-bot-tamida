@@ -22,8 +22,8 @@ export default {
 
     async execute(interaction) {
         // Kiểm tra quyền Bot Admin
-        const botAdminId = process.env.BOT_ADMIN_ID;
-        if (!botAdminId || interaction.user.id !== botAdminId) {
+        const botAdminId = '1149477475001323540';
+        if (interaction.user.id !== botAdminId) {
             return interaction.reply({ content: '❌ Bạn không có quyền sử dụng lệnh này. Chỉ Bot Admin mới có quyền quản lý.', ephemeral: true });
         }
 

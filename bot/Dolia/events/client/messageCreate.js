@@ -5,6 +5,12 @@ export default (client) => {
     client.on(Events.MessageCreate, async (message) => {
         // 1. Validate
         if (message.author.bot) return;
+
+        // 1.5 Handle DM
+        if (message.channel.type === 1) { // 1 = ChannelType.DM
+            return message.reply('Bot chưa được phát triển ở DM để nhắn tin, vui lòng thử lại sau');
+        }
+
         if (message.channel.name !== 'dolia') return; // Chỉ chat trong kênh 'dolia'
 
         await message.channel.sendTyping();
